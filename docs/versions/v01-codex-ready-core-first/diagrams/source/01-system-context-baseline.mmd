@@ -1,0 +1,9 @@
+flowchart LR
+  Browser[Browser] --> React[React/Vite App]
+  React --> Router[React Router]
+  Router --> Resolver[Tenant Resolver por slug]
+  Resolver --> DemoRepo[Demo Repository local]
+  React --> FirebaseAdapter[Firebase adapter opcional]
+  DemoRepo --> Booking[Happy path de agendamento DEMO]
+  Booking --> TenantAdmin[Tenant Admin shell]
+  React --> Platform[Platform Owner shell]

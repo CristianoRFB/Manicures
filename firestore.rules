@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function membershipId(tenantId) {
+      return tenantId + "_" + request.auth.uid;
+    }
+
+    function membership(tenantId) {
+      return get(/databases/$(database)/documents/memberships/$(membershipId(tenantId)));
+    }
+
+    function activeMember(tenantId) {
+      return signedIn()
+        && membership(tenantId).data.status == "active";
+    }
+
+    function tenantRole(tenantId, roles) {
+      return activeMember(tenantId)
+        && membership(tenantId).data.role in roles;
+    }
+
+    function isPlatformOwner() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/platformUsers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/platformUsers/$(request.auth.uid)).data.role == "platform_owner";
+    }
+
+    match /tenants/{tenantId} {
+      allow read: if resource.data.status == "active" || activeMember(tenantId) || isPlatformOwner();
+      allow create, update: if isPlatformOwner();
+      allow delete: if false;
+
+      match /services/{serviceId} {
+        allow read: if resource.data.active == true || activeMember(tenantId) || isPlatformOwner();
+        allow write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner();
+      }
+
+      match /professionals/{professionalId} {
+        allow read: if resource.data.active == true || activeMember(tenantId) || isPlatformOwner();
+        allow write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner();
+      }
+
+      match /appointments/{appointmentId} {
+        allow create: if request.resource.data.tenantId == tenantId
+          && request.resource.data.status == "pending"
+          && request.resource.data.priceSnapshotCents is int
+          && request.resource.data.durationSnapshotMin is int;
+        allow read, update: if activeMember(tenantId) || isPlatformOwner();
+        allow delete: if false;
+      }
+
+      match /customers/{customerId} {
+        allow read, write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin", "professional"]) || isPlatformOwner();
+      }
+
+      match /scheduleBlocks/{blockId} {
+        allow read, write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin", "professional"]) || isPlatformOwner();
+      }
+    }
+
+    match /memberships/{id} {
+      allow read: if signedIn() && (resource.data.userId == request.auth.uid || isPlatformOwner());
+      allow write: if isPlatformOwner();
+    }
+
+    match /platformUsers/{uid} {
+      allow read: if signedIn() && uid == request.auth.uid;
+      allow write: if false;
+    }
+  }
+}

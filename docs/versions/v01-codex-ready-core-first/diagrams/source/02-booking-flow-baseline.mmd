@@ -1,0 +1,6 @@
+flowchart LR
+  Service[Selecionar serviço] --> Professional[Selecionar profissional]
+  Professional --> Slot[Calcular/selecionar horário]
+  Slot --> Appointment[Criar Appointment DEMO]
+  Appointment --> Validate[Validar overlap local]
+  Validate --> Panel[Painel do tenant]

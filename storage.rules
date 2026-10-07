@@ -1,0 +1,14 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /tenants/{tenantId}/public/{allPaths=**} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /tenants/{tenantId}/private/{allPaths=**} {
+      // Fechado por padrão até memberships/RBAC serem ligados e testados no próximo GOAL.
+      allow read, write: if false;
+    }
+  }
+}
