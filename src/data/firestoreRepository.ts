@@ -45,8 +45,9 @@ export class FirestoreRepository implements Repository {
     return snapshot.docs.map((item) => withId<Service>(item.id, item.data()));
   }
 
-  async listProfessionals(tenantId: string): Promise<Professional[]> {
-    const snapshot = await getDocs(query(collection(dbOrThrow(), "tenants", tenantId, "professionals"), where("active", "==", true)));
+  async listProfessionals(tenantId: string, options?: {includeInactive?: boolean}): Promise<Professional[]> {
+    const records = collection(dbOrThrow(), "tenants", tenantId, "professionals");
+    const snapshot = await getDocs(options?.includeInactive ? records : query(records,where("active","==",true)));
     return snapshot.docs.map((item) => withId<Professional>(item.id, item.data()));
   }
 
