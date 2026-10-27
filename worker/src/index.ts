@@ -1,13 +1,17 @@
+import { assertCommercialChange, evaluate, type CommercialState } from "../../src/commercial/entitlements";
+import type { Tenant } from "../../src/domain/types";
+
 interface Env {
   FIREBASE_PROJECT_ID: string;
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
   ALLOWED_ORIGIN?: string;
+  FIREBASE_AUTH_PROJECT_ID?: string;
   FIRESTORE_EMULATOR_HOST?: string;
 }
 
 type FireValue = { stringValue?: string; integerValue?: string; booleanValue?: boolean; mapValue?: { fields: Record<string, FireValue> }; arrayValue?: { values: FireValue[] } };
-type FireDoc = { name: string; fields?: Record<string, FireValue> };
+type FireDoc = { name: string; fields?: Record<string, FireValue>; updateTime?: string };
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 
@@ -15,7 +19,7 @@ function cors(env: Env) {
   return {
     "access-control-allow-origin": env.ALLOWED_ORIGIN ?? "*",
     "access-control-allow-methods": "POST,OPTIONS",
-    "access-control-allow-headers": "content-type",
+    "access-control-allow-headers": "content-type,authorization",
   };
 }
 
@@ -79,6 +83,70 @@ async function getDocument(env: Env, token: string, path: string): Promise<FireD
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Firestore GET ${path} falhou (${response.status}).`);
   return response.json() as Promise<FireDoc>;
+}
+
+function asRecord(value: FireValue | undefined): Record<string, FireValue> {
+  return value?.mapValue?.fields ?? {};
+}
+function parseCommercial(tenant: FireDoc): CommercialState | undefined {
+  const f = tenant.fields?.commercial?.mapValue?.fields;
+  if (!f || !f.planId?.stringValue || !f.subscriptionStatus?.stringValue) return undefined;
+  const entitlementOverrides: Record<string, boolean> = {};
+  for (const [key, value] of Object.entries(asRecord(f.entitlementOverrides))) {
+    if (value.booleanValue !== undefined) entitlementOverrides[key] = value.booleanValue;
+  }
+  const limitOverrides: Record<string, number | null> = {};
+  for (const [key, value] of Object.entries(asRecord(f.limitOverrides))) {
+    if (value.integerValue !== undefined) limitOverrides[key] = Number(value.integerValue);
+    else if (value.stringValue === "__NULL__") limitOverrides[key] = null;
+  }
+  return {
+    planId: f.planId.stringValue,
+    subscriptionStatus: f.subscriptionStatus.stringValue as CommercialState["subscriptionStatus"],
+    trialUntil: f.trialUntil?.stringValue || null,
+    entitlementOverrides,
+    limitOverrides,
+  };
+}
+function asTenant(doc: FireDoc, tenantId: string): Tenant {
+  return {
+    id: tenantId,
+    status: (str(doc, "status") || "suspended") as Tenant["status"],
+    kind: (str(doc, "kind") || "real") as Tenant["kind"],
+    commercial: parseCommercial(doc),
+  } as Tenant;
+}
+function parseBase64Url(encoded: string): Uint8Array {
+  const raw = atob(encoded.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(encoded.length / 4) * 4, "="));
+  return Uint8Array.from(raw, (ch) => ch.charCodeAt(0));
+}
+async function verifyFirebaseIdToken(raw: string, env: Env): Promise<string> {
+  const parts = raw.split(".");
+  if (parts.length !== 3) throw new Error("Token inválido.");
+  const header = JSON.parse(new TextDecoder().decode(parseBase64Url(parts[0]))) as {kid?:string; alg?:string};
+  const payload = JSON.parse(new TextDecoder().decode(parseBase64Url(parts[1]))) as {
+    aud?:string; iss?:string; sub?:string; exp?:number; iat?:number; auth_time?:number;
+  };
+  const project = env.FIREBASE_AUTH_PROJECT_ID ?? env.FIREBASE_PROJECT_ID;
+  const now = Math.floor(Date.now() / 1000);
+  if (header.alg !== "RS256" || !header.kid ||
+      payload.aud !== project || payload.iss !== `https://securetoken.google.com/${project}` ||
+      !payload.sub || payload.sub.length > 128 ||
+      !payload.exp || payload.exp <= now || !payload.iat || payload.iat > now ||
+      !payload.auth_time || payload.auth_time > now)
+    throw new Error("Token inválido ou expirado.");
+  const response = await fetch("https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com");
+  if (!response.ok) throw new Error("Chaves públicas indisponíveis.");
+  const jwks = await response.json() as {keys: Array<JsonWebKey & {kid?:string}>};
+  const jwk = jwks.keys.find((item) => item.kid === header.kid);
+  if (!jwk) throw new Error("Assinatura não reconhecida.");
+  const key = await crypto.subtle.importKey("jwk", jwk, {name:"RSASSA-PKCS1-v1_5", hash:"SHA-256"}, false, ["verify"]);
+  const verified = await crypto.subtle.verify(
+    "RSASSA-PKCS1-v1_5", key, parseBase64Url(parts[2]),
+    new TextEncoder().encode(`${parts[0]}.${parts[1]}`)
+  );
+  if (!verified) throw new Error("Assinatura inválida.");
+  return payload.sub;
 }
 
 function str(doc: FireDoc, key: string): string { return doc.fields?.[key]?.stringValue ?? ""; }
@@ -146,6 +214,10 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
   if (!service || !bool(service, "active")) return json(env, { error: "Serviço indisponível." }, 400);
   if (!professional || !bool(professional, "active") || !arr(professional, "serviceIds").includes(serviceId)) return json(env, { error: "Profissional indisponível para o serviço." }, 400);
 
+  if (!evaluate(asTenant(tenant, tenantId), "booking.create").allowed) {
+    return json(env, { error: "Agendamentos indisponíveis para o estado comercial deste tenant." }, 403);
+  }
+
   const duration = int(service, "durationMin");
   const price = int(service, "priceCents");
   if (!Number.isInteger(duration) || duration <= 0 || !Number.isInteger(price) || price < 0) return json(env, { error: "Configuração de serviço inválida." }, 500);
@@ -196,11 +268,91 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
   return json(env, { appointment: { id: appointmentId, tenantId, customerName, customerPhone, professionalId, serviceId, startsAt, endsAt, priceSnapshotCents: price, durationSnapshotMin: duration, status: "pending", createdAt: now, updatedAt: now } }, 201);
 }
 
+/** Manual plan assignment only. Never accepts a caller-supplied actorId or price. */
+async function assignPlan(request: Request, env: Env): Promise<Response> {
+  const authorization = request.headers.get("authorization") ?? "";
+  if (!authorization.startsWith("Bearer ")) return json(env, {error:"Autenticação necessária."}, 401);
+  let actorId: string;
+  try { actorId = await verifyFirebaseIdToken(authorization.slice(7), env); }
+  catch { return json(env, {error:"Token inválido ou expirado."}, 401); }
+
+  const data = await request.json() as Record<string, unknown>;
+  const tenantId = typeof data.tenantId === "string" ? data.tenantId : "";
+  const planId = typeof data.planId === "string" ? data.planId : "";
+  const status = typeof data.subscriptionStatus === "string" ? data.subscriptionStatus : "";
+  const reason = typeof data.reason === "string" ? data.reason.trim() : "";
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(tenantId) || reason.length < 10 || reason.length > 600)
+    return json(env, {error:"Tenant ou justificativa inválidos (10 a 600 caracteres)."}, 400);
+  if (!["active","trial","past_due","suspended","cancelled","demo"].includes(status))
+    return json(env, {error:"Status inválido."}, 400);
+
+  const serverToken = env.FIRESTORE_EMULATOR_HOST ? "" : await serviceAccessToken(env);
+  const platform = await getDocument(env, serverToken, `platformUsers/${actorId}`);
+  if (!platform || str(platform,"role") !== "platform_owner" || str(platform,"status") !== "active")
+    return json(env, {error:"Acesso negado."}, 403);
+
+  const tenant = await getDocument(env, serverToken, `tenants/${tenantId}`);
+  if (!tenant || !tenant.updateTime) return json(env, {error:"Tenant não encontrado."}, 404);
+
+  const previous = parseCommercial(tenant) ?? null;
+  const now = new Date();
+  const trialUntil = status === "trial" ? new Date(now.getTime() + 14*24*60*60*1000).toISOString() : null;
+  const changes: CommercialState = {
+    planId, subscriptionStatus: status as CommercialState["subscriptionStatus"],
+    trialUntil,
+    entitlementOverrides: typeof data.entitlementOverrides === "object" && data.entitlementOverrides && !Array.isArray(data.entitlementOverrides)
+      ? data.entitlementOverrides as Record<string, boolean>
+      : previous?.entitlementOverrides ?? {},
+    limitOverrides: typeof data.limitOverrides === "object" && data.limitOverrides && !Array.isArray(data.limitOverrides)
+      ? data.limitOverrides as Record<string, number | null>
+      : previous?.limitOverrides ?? {},
+  };
+  try { assertCommercialChange(changes, str(tenant, "kind") as Tenant["kind"]); }
+  catch(error) { return json(env, {error:error instanceof Error ? error.message : "Configuração inválida."},400); }
+
+  const auditId = crypto.randomUUID();
+  const writes = [
+    {
+      update: {name:docName(env, `tenants/${tenantId}`), fields:{commercial:field({
+        ...changes, limitOverrides: Object.fromEntries(Object.entries(changes.limitOverrides ?? {}).map(([k,v])=>[k,v===null?"__NULL__":v])),
+      })}},
+      updateMask:{fieldPaths:["commercial"]},
+      currentDocument:{updateTime:tenant.updateTime},
+    },
+    {
+      update:{
+        name:docName(env, `tenants/${tenantId}/auditLogs/${auditId}`),
+        fields:fields({
+          actorId, actorRole:"platform_owner", tenantId, action:"commercial.manual_assignment",
+          resourceType:"tenant", resourceId:tenantId, before:previous ?? {}, after:changes,
+          reason, createdAt:now.toISOString(),
+        }),
+      },
+      currentDocument:{exists:false},
+    },
+  ];
+  const headers: Record<string,string> = {"content-type":"application/json"};
+  if (serverToken) headers.authorization = `Bearer ${serverToken}`;
+  const response = await fetch(commitUrl(env), {method:"POST",headers,body:JSON.stringify({writes})});
+  if (!response.ok) {
+    const detail = await response.text();
+    if (response.status === 409 || response.status === 412 || detail.includes("FAILED_PRECONDITION"))
+      return json(env,{error:"Configuração modificada em outra sessão. Recarregue antes de salvar."},409);
+    console.error("Manual assignment commit failed",response.status,detail.slice(0,200));
+    return json(env,{error:"Não foi possível atualizar o plano."},500);
+  }
+  return json(env,{ok:true,tenantId,commercial:changes,auditId});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
     if (request.method === "GET" && url.pathname === "/health") return json(env, { ok: true, service: "saas-manicure-booking-api" });
+    if (request.method === "POST" && url.pathname === "/api/admin/plans/assign") {
+      try { return await assignPlan(request, env); }
+      catch (error) { console.error("Plan assignment failed", error); return json(env,{error:"Falha ao atribuir plano."},500); }
+    }
     if (request.method === "POST" && url.pathname === "/api/bookings") {
       try { return await createBooking(request, env); }
       catch (error) { console.error(error); return json(env, { error: error instanceof Error ? error.message : "Erro interno." }, 500); }
