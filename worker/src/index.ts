@@ -3,6 +3,7 @@ interface Env {
   FIREBASE_CLIENT_EMAIL: string;
   FIREBASE_PRIVATE_KEY: string;
   ALLOWED_ORIGIN?: string;
+  FIRESTORE_EMULATOR_HOST?: string;
 }
 
 type FireValue = { stringValue?: string; integerValue?: string; booleanValue?: boolean; mapValue?: { fields: Record<string, FireValue> }; arrayValue?: { values: FireValue[] } };
@@ -62,11 +63,19 @@ async function serviceAccessToken(env: Env): Promise<string> {
   return data.access_token;
 }
 
-function base(env: Env) { return `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents`; }
+function base(env: Env) {
+  if (env.FIRESTORE_EMULATOR_HOST) return `http://${env.FIRESTORE_EMULATOR_HOST}/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+  return `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents`;
+}
+function commitUrl(env: Env) {
+  if (env.FIRESTORE_EMULATOR_HOST) return `http://${env.FIRESTORE_EMULATOR_HOST}/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`;
+  return `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`;
+}
 function docName(env: Env, path: string) { return `projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}`; }
 
 async function getDocument(env: Env, token: string, path: string): Promise<FireDoc | null> {
-  const response = await fetch(`${base(env)}/${path}`, { headers: { authorization: `Bearer ${token}` } });
+  const headers: Record<string, string> = token ? { authorization: `Bearer ${token}` } : {};
+  const response = await fetch(`${base(env)}/${path}`, { headers });
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`Firestore GET ${path} falhou (${response.status}).`);
   return response.json() as Promise<FireDoc>;
@@ -127,7 +136,7 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
   const customerPhone = String(body.customerPhone ?? "").trim();
   if (!tenantId || !serviceId || !professionalId || !startsAt || !customerName || !customerPhone) return json(env, { error: "Dados obrigatórios ausentes." }, 400);
 
-  const token = await serviceAccessToken(env);
+  const token = env.FIRESTORE_EMULATOR_HOST ? "" : await serviceAccessToken(env);
   const [tenant, service, professional] = await Promise.all([
     getDocument(env, token, `tenants/${tenantId}`),
     getDocument(env, token, `tenants/${tenantId}/services/${serviceId}`),
@@ -167,15 +176,19 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
     })),
   ];
 
-  const response = await fetch(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:commit`, {
+  const headers: Record<string, string> = { "content-type": "application/json" };
+  if (token) headers.authorization = `Bearer ${token}`;
+  const response = await fetch(commitUrl(env), {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers,
     body: JSON.stringify({ writes }),
   });
 
-  if (response.status === 409 || response.status === 412) return json(env, { error: "Horário indisponível. Escolha outro slot." }, 409);
   if (!response.ok) {
     const detail = await response.text();
+    if (response.status === 409 || response.status === 412 || detail.includes("ALREADY_EXISTS") || detail.includes("FAILED_PRECONDITION")) {
+      return json(env, { error: "Horário indisponível. Escolha outro slot." }, 409);
+    }
     console.error("Firestore booking commit failed", response.status, detail.slice(0, 500));
     return json(env, { error: "Não foi possível criar o agendamento." }, 500);
   }
