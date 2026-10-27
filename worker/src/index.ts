@@ -1,4 +1,4 @@
-import { assertCommercialChange, evaluate, type CommercialState } from "../../src/commercial/entitlements";
+import { assertCommercialChange, evaluate, getLimit, type CommercialState } from "../../src/commercial/entitlements";
 import type { Tenant } from "../../src/domain/types";
 
 interface Env {
@@ -344,11 +344,103 @@ async function assignPlan(request: Request, env: Env): Promise<Response> {
   return json(env,{ok:true,tenantId,commercial:changes,auditId});
 }
 
+async function listDocuments(env: Env, token: string, path: string): Promise<FireDoc[]> {
+  const output: FireDoc[] = [];
+  let pageToken = "";
+  do {
+    const query = new URLSearchParams({pageSize:"200"});
+    if (pageToken) query.set("pageToken",pageToken);
+    const headers: Record<string,string> = token ? {authorization:`Bearer ${token}`} : {};
+    const response = await fetch(`${base(env)}/${path}?${query}`,{headers});
+    if (response.status === 404) return output;
+    if (!response.ok) throw new Error(`Firestore LIST failed (${response.status}).`);
+    const data = await response.json() as {documents?:FireDoc[];nextPageToken?:string};
+    output.push(...(data.documents ?? []));
+    if (output.length > 10000) throw new Error("Quantidade acima do limite operacional de conferência.");
+    pageToken = data.nextPageToken ?? "";
+  } while (pageToken);
+  return output;
+}
+async function tenantAdminIdentity(request: Request, env: Env, tenantId: string, serverToken: string): Promise<{actorId:string;actorRole:string} | null> {
+  const authorization = request.headers.get("authorization") ?? "";
+  if (!authorization.startsWith("Bearer ")) return null;
+  let actorId: string;
+  try { actorId=await verifyFirebaseIdToken(authorization.slice(7),env); }
+  catch { return null; }
+  const platform = await getDocument(env,serverToken,`platformUsers/${actorId}`);
+  if (platform && str(platform,"role")==="platform_owner" && str(platform,"status")==="active")
+    return {actorId,actorRole:"platform_owner"};
+  const membership = await getDocument(env,serverToken,`memberships/${tenantId}_${actorId}`);
+  if (!membership || str(membership,"tenantId")!==tenantId || str(membership,"userId")!==actorId
+      || str(membership,"status")!=="active" || !["tenant_owner","tenant_admin"].includes(str(membership,"role"))) return null;
+  return {actorId,actorRole:str(membership,"role")};
+}
+
+async function createProfessional(request: Request, env: Env): Promise<Response> {
+  const data = await request.json() as Record<string,unknown>;
+  const tenantId = typeof data.tenantId==="string" ? data.tenantId : "";
+  const name = typeof data.name==="string" ? data.name.trim() : "";
+  const serviceIds = Array.isArray(data.serviceIds) && data.serviceIds.every(id=>typeof id==="string") ? data.serviceIds as string[] : [];
+  if (!/^[a-zA-Z0-9_-]{1,100}$/.test(tenantId) || name.length<2 || name.length>100 || serviceIds.length>40
+      || serviceIds.some(id=>!/^[a-zA-Z0-9_-]{1,100}$/.test(id))) return json(env,{error:"Profissional ou tenant inválido."},400);
+  const serverToken = env.FIRESTORE_EMULATOR_HOST ? "" : await serviceAccessToken(env);
+  const actor = await tenantAdminIdentity(request,env,tenantId,serverToken);
+  if (!actor) return json(env,{error:"Sessão sem permissão para equipe."},403);
+  const tenant = await getDocument(env,serverToken,`tenants/${tenantId}`);
+  if (!tenant || str(tenant,"status")!=="active") return json(env,{error:"Tenant indisponível."},403);
+  const cap = getLimit(asTenant(tenant,tenantId),"professionals_active");
+  if (cap===0) return json(env,{error:"Plano não atribuído ou inativo."},403);
+  const allowedServices = await Promise.all(serviceIds.map(id=>getDocument(env,serverToken,`tenants/${tenantId}/services/${id}`)));
+  if (allowedServices.some(doc=>!doc || !bool(doc,"active"))) return json(env,{error:"Serviço não pertence ao tenant ou está inativo."},400);
+
+  const counterPath=`tenants/${tenantId}/usage/staff`;
+  const counter=await getDocument(env,serverToken,counterPath);
+  const existing = counter
+    ? int(counter,"professionalsActive")
+    : (await listDocuments(env,serverToken,`tenants/${tenantId}/professionals`)).filter(p=>bool(p,"active")).length;
+  if (!Number.isSafeInteger(existing)||existing<0) return json(env,{error:"Contagem de profissionais inconsistente."},409);
+  if (cap!==null && existing>=cap) return json(env,{error:`Limite de profissionais atingido (${existing}/${cap}).`},409);
+
+  const now=new Date().toISOString(),professionalId=crypto.randomUUID(),auditId=crypto.randomUUID();
+  const writes=[
+    {
+      update:{name:docName(env,`tenants/${tenantId}/professionals/${professionalId}`),
+        fields:fields({tenantId,name,serviceIds,active:true,createdAt:now,updatedAt:now})},
+      currentDocument:{exists:false},
+    },
+    {
+      update:{name:docName(env,counterPath),fields:fields({professionalsActive:existing+1,updatedAt:now})},
+      currentDocument: counter?.updateTime ? {updateTime:counter.updateTime} : {exists:false},
+    },
+    {
+      update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+        fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,action:"professionals.create",
+          resourceType:"professional",resourceId:professionalId,before:{},after:{tenantId,name,serviceIds,active:true},createdAt:now})},
+      currentDocument:{exists:false},
+    },
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if (serverToken) headers.authorization=`Bearer ${serverToken}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if (!response.ok) {
+    const detail=await response.text();
+    if ([409,412].includes(response.status)||detail.includes("ALREADY_EXISTS")||detail.includes("FAILED_PRECONDITION"))
+      return json(env,{error:"Equipe alterada durante a operação. Recarregue e tente novamente."},409);
+    console.error("Professional create commit failed",response.status,detail.slice(0,200));
+    return json(env,{error:"Não foi possível salvar profissional."},500);
+  }
+  return json(env,{professional:{id:professionalId,tenantId,name,serviceIds,active:true},auditId},201);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
     if (request.method === "GET" && url.pathname === "/health") return json(env, { ok: true, service: "saas-manicure-booking-api" });
+    if (request.method === "POST" && url.pathname === "/api/admin/professionals") {
+      try { return await createProfessional(request,env); }
+      catch(error) {console.error("Professional create failed",error);return json(env,{error:"Falha ao cadastrar profissional."},500);}
+    }
     if (request.method === "POST" && url.pathname === "/api/admin/plans/assign") {
       try { return await assignPlan(request, env); }
       catch (error) { console.error("Plan assignment failed", error); return json(env,{error:"Falha ao atribuir plano."},500); }
