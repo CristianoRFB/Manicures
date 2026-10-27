@@ -73,7 +73,7 @@ export function TenantAdminPage() {
   }, [tenant?.id, user?.uid]);
 
   const authorized = useMemo(() =>
-    platformOwner || Boolean(membership?.tenantId===tenant?.id && membership.status==="active" && ADMIN_ROLES.has(membership.role)),
+    platformOwner || Boolean(membership !== null && membership.tenantId===tenant?.id && membership.status==="active" && ADMIN_ROLES.has(membership.role)),
     [membership,platformOwner,tenant?.id]);
 
   useEffect(() => {
