@@ -676,6 +676,80 @@ async function manageTenantAdmin(request:Request, env:Env):Promise<Response> {
   return json(env,{ok:true,membership:member,auditId});
 }
 
+
+async function setProfessionalActive(request:Request,env:Env):Promise<Response> {
+  const payload=await request.json() as Record<string,unknown>;
+  const tenantId=typeof payload.tenantId==="string" ? payload.tenantId:"";
+  const professionalId=typeof payload.professionalId==="string" ? payload.professionalId:"";
+  const active=payload.active;
+  if(![tenantId,professionalId].every(id=>/^[a-zA-Z0-9_-]{1,100}$/.test(id))||typeof active!=="boolean")
+    return json(env,{error:"Identificadores ou estado inválidos."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST ? "" : await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Acesso negado."},403);
+  const [tenant,professional]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`tenants/${tenantId}/professionals/${professionalId}`),
+  ]);
+  if(!tenant||!professional||!professional.updateTime)
+    return json(env,{error:"Profissional não encontrada."},404);
+  const wasActive=bool(professional,"active");
+  if(wasActive===active)return json(env,{ok:true,unchanged:true,professionalId,active});
+  if(!active) {
+    const nowLocal=zonedNowString(settings(tenant).timezone);
+    const future=(await listDocuments(env,token,`tenants/${tenantId}/appointments`))
+      .some(appointment=>
+        str(appointment,"professionalId")===professionalId
+        && ["pending","confirmed","in_service"].includes(str(appointment,"status"))
+        && str(appointment,"startsAt")>=nowLocal);
+    if(future)return json(env,{error:"Há atendimentos futuros ativos. Reatribua ou cancele-os antes de desativar."},409);
+  }
+  const counterPath=`tenants/${tenantId}/usage/staff`;
+  const counter=await getDocument(env,token,counterPath);
+  const count=counter?.fields?.professionalsActive?.integerValue!==undefined
+    ? int(counter,"professionalsActive")
+    : (await listDocuments(env,token,`tenants/${tenantId}/professionals`)).filter(p=>bool(p,"active")).length;
+  const next=count+(active?1:-1);
+  if(!Number.isSafeInteger(count)||count<0||next<0)return json(env,{error:"Contador inconsistente."},409);
+  if(active) {
+    const limit=getLimit(asTenant(tenant,tenantId),"professionals_active");
+    if(limit===0 || (limit!==null && next>limit))
+      return json(env,{error:`Limite de profissionais ativos atingido (${count}/${limit}).`},409);
+  }
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const writes=[
+    {
+      update:{name:docName(env,`tenants/${tenantId}/professionals/${professionalId}`),
+        fields:fields({active,updatedAt:now})},
+      updateMask:{fieldPaths:["active","updatedAt"]},
+      currentDocument:{updateTime:professional.updateTime},
+    },
+    {
+      update:{name:docName(env,counterPath),fields:fields({professionalsActive:next,updatedAt:now})},
+      updateMask:{fieldPaths:["professionalsActive","updatedAt"]},
+      currentDocument:counter?.updateTime ? {updateTime:counter.updateTime} : {exists:false},
+    },
+    {
+      update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+        fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+          action:"professionals.active_changed",resourceType:"professional",resourceId:professionalId,
+          before:{active:wasActive},after:{active},createdAt:now})},
+      currentDocument:{exists:false},
+    },
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok) {
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ABORTED/.test(detail))
+      return json(env,{error:"Equipe alterada simultaneamente. Recarregue e tente novamente."},409);
+    console.error("Professional status write failed",response.status,detail.slice(0,200));
+    return json(env,{error:"Não foi possível atualizar profissional."},500);
+  }
+  return json(env,{ok:true,professionalId,active,auditId});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -692,6 +766,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
       try { return await manageTenantAdmin(request,env); }
       catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
+    }
+    if (request.method === "POST" && url.pathname === "/api/admin/professionals/activation") {
+      try {return await setProfessionalActive(request,env);}
+      catch(error){console.error("Professional active update failed",error);return json(env,{error:"Falha ao atualizar profissional."},500);}
     }
     if (request.method === "POST" && url.pathname === "/api/admin/professionals") {
       try { return await createProfessional(request,env); }
