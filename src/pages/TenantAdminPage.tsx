@@ -6,6 +6,7 @@ import { resolveTenant } from "../lib/tenantResolver";
 import { useAuth } from "../auth/AuthProvider";
 import { getLimit, evaluate } from "../commercial/entitlements";
 import { LoginPanel } from "../components/LoginPanel";
+import {parseBRLToCents} from "../domain/currency";
 
 const ADMIN_ROLES = new Set(["tenant_owner", "tenant_admin"]);
 
@@ -137,9 +138,8 @@ export function TenantAdminPage() {
     if (!tenant || working) return;
     setWorking(true);setFeedback("");setOperationError("");
     try {
-      const normalized=newServicePrice.replace(",",".").trim();
-      if (!/^\d{1,7}(\.\d{1,2})?$/.test(normalized)) throw new Error("Preço inválido; informe reais e centavos.");
-      const priceCents=Math.round(Number(normalized)*100), durationMin=Number(newServiceMinutes);
+      const priceCents=parseBRLToCents(newServicePrice);
+      const durationMin=Number(newServiceMinutes);
       await repository.createService(tenant.id,{
         name:newServiceName,description:newServiceDescription,priceCents,durationMin,
       });
