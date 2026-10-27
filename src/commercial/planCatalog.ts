@@ -22,8 +22,7 @@ export interface PlanDefinition {
 }
 
 const ESSENTIAL: readonly FeatureKey[] = [
-  "booking.create", "booking.public", "services.read", "branding.basic", "dashboard.read",
-  "professionals.manage", "services.manage", "appointments.manage", "history.read", "whatsapp.manual",
+  "booking.create", "booking.public", "services.read", "branding.basic", "dashboard.read", "professionals.manage", "services.manage", "appointments.manage", "history.read", "whatsapp.manual",
 ];
 const PRO: readonly FeatureKey[] = [...ESSENTIAL, "reminders.automatic", "waitlist", "reports.basic", "loyalty"];
 const PREMIUM: readonly FeatureKey[] = [...PRO, "packages", "commissions", "cashflow", "inventory", "reports.advanced", "crm.advanced"];

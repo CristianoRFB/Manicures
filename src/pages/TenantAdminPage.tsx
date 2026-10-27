@@ -4,6 +4,7 @@ import { repository } from "../data/repository";
 import type { Appointment, Membership, Professional, Service, Tenant } from "../domain/types";
 import { resolveTenant } from "../lib/tenantResolver";
 import { useAuth } from "../auth/AuthProvider";
+import { getLimit } from "../commercial/entitlements";
 import { LoginPanel } from "../components/LoginPanel";
 
 const ADMIN_ROLES = new Set(["tenant_owner", "tenant_admin"]);
@@ -18,9 +19,19 @@ export function TenantAdminPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const auditLogged = useRef(false);
+  const [newProName, setNewProName] = useState("");
+  const [newProServices, setNewProServices] = useState<string[]>([]);
+  const [newServiceName, setNewServiceName] = useState("");
+  const [newServiceDescription, setNewServiceDescription] = useState("");
+  const [newServicePrice, setNewServicePrice] = useState("");
+  const [newServiceMinutes, setNewServiceMinutes] = useState("60");
+  const [working, setWorking] = useState(false);
+  const [feedback, setFeedback] = useState("");
+  const [operationError, setOperationError] = useState("");
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    resolveTenant(repository, tenantSlug).then(setTenant);
+    resolveTenant(repository, tenantSlug).then(setTenant).catch(err => setLoadError(err instanceof Error ? err.message : "Falha ao carregar tenant."));
   }, [tenantSlug]);
 
   useEffect(() => {
@@ -55,8 +66,52 @@ export function TenantAdminPage() {
     }
   }, [tenant, user, authorized, platformOwner]);
 
+  async function refresh() {
+    if (!tenant) return;
+    const [a,s,p] = await Promise.all([repository.listAppointments(tenant.id),
+      repository.listServices(tenant.id),repository.listProfessionals(tenant.id)]);
+    setAppointments(a);setServices(s);setProfessionals(p);
+  }
+
+  async function addProfessional(event: React.FormEvent) {
+    event.preventDefault();
+    if (!tenant || !user || working) return;
+    setWorking(true);setFeedback("");setOperationError("");
+    try {
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if (!base) throw new Error("Worker de equipe indisponível.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/admin/professionals`, {
+        method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:tenant.id,name:newProName.trim(),serviceIds:newProServices}),
+      });
+      const data=await response.json() as {error?:string};
+      if (!response.ok) throw new Error(data.error || "Falha no cadastro.");
+      await refresh();setNewProName("");setNewProServices([]);
+      setFeedback("Profissional cadastrada com validação de limite e auditoria.");
+    } catch(err) {setOperationError(err instanceof Error ? err.message : "Falha de rede.");}
+    finally{setWorking(false);}
+  }
+
+  async function addService(event: React.FormEvent) {
+    event.preventDefault();
+    if (!tenant || working) return;
+    setWorking(true);setFeedback("");setOperationError("");
+    try {
+      const normalized=newServicePrice.replace(",",".").trim();
+      if (!/^\\d{1,7}(\\.\\d{1,2})?$/.test(normalized)) throw new Error("Preço inválido; informe reais e centavos.");
+      const priceCents=Math.round(Number(normalized)*100), durationMin=Number(newServiceMinutes);
+      await repository.createService(tenant.id,{
+        name:newServiceName,description:newServiceDescription,priceCents,durationMin,
+      });
+      await refresh();setNewServiceName("");setNewServiceDescription("");setNewServicePrice("");
+      setFeedback("Serviço cadastrado com sucesso.");
+    } catch(err) {setOperationError(err instanceof Error ? err.message : "Falha de rede.");}
+    finally{setWorking(false);}
+  }
+
   if (loading) return <section className="page">Validando sessão…</section>;
   if (!user) return <LoginPanel title="Painel do tenant" />;
+  if (loadError) return <section className="page" role="alert">{loadError}</section>;
   if (!tenant) return <section className="page">Tenant não encontrado ou suspenso.</section>;
   if (!authorized) return <section className="page narrow"><div className="badge">ACESSO NEGADO</div><h1>{tenant.name}</h1><p>Sua membership não autoriza administrar este tenant.</p><button className="button" onClick={() => void logout()}>Sair</button></section>;
 
@@ -68,6 +123,44 @@ export function TenantAdminPage() {
         <div className="stat"><strong>{professionals.length}</strong><span>profissionais</span></div>
         <div className="stat"><strong>{services.length}</strong><span>serviços</span></div>
       </div>
+      <div className="row">
+        <p><strong>Plano:</strong> {tenant.commercial?.planId || "legado sem atribuição"}</p>
+        <p><strong>Status:</strong> {tenant.commercial?.subscriptionStatus || "pendente"}</p>
+        <p><strong>Limite de profissionais:</strong> {professionals.length}/{getLimit(tenant,"professionals_active") ?? "sem teto"}</p>
+      </div>
+      <h2>Serviços</h2>
+      <div className="grid cards">
+        {services.map(service=><article className="card" key={service.id}>
+          <h3>{service.name}</h3>
+          <p>{service.durationMin} min — {new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(service.priceCents/100)}</p>
+        </article>)}
+      </div>
+      {!services.length && <p>Nenhum serviço ativo cadastrado.</p>}
+      <form className="form narrow" onSubmit={(event)=>void addService(event)}>
+        <h3>Cadastrar serviço</h3>
+        <label>Nome do serviço<input value={newServiceName} minLength={2} maxLength={100} required onChange={e=>setNewServiceName(e.target.value)} /></label>
+        <label>Descrição<input value={newServiceDescription} maxLength={400} onChange={e=>setNewServiceDescription(e.target.value)} /></label>
+        <label>Preço em reais<input value={newServicePrice} inputMode="decimal" placeholder="49,90" required onChange={e=>setNewServicePrice(e.target.value)} /></label>
+        <label>Duração (minutos)<input type="number" min={15} max={480} step={15} value={newServiceMinutes} required onChange={e=>setNewServiceMinutes(e.target.value)} /></label>
+        <button className="button primary" disabled={working} type="submit">{working?"Salvando…":"Adicionar serviço"}</button>
+      </form>
+      <h2>Profissionais</h2>
+      <div className="grid cards">{professionals.map(pro=><article className="card" key={pro.id}>
+        <h3>{pro.name}</h3><p>{pro.serviceIds.length} serviço(s) associado(s)</p>
+      </article>)}</div>
+      <form className="form narrow" onSubmit={(event)=>void addProfessional(event)}>
+        <h3>Cadastrar profissional</h3>
+        <label>Nome<input required minLength={2} maxLength={100} value={newProName} onChange={e=>setNewProName(e.target.value)} /></label>
+        <fieldset><legend>Serviços que realiza</legend>{services.map(service=>
+          <label key={service.id} className="row">
+            <input type="checkbox" checked={newProServices.includes(service.id)} onChange={e=>setNewProServices(curr=>e.target.checked?[...curr,service.id]:curr.filter(id=>id!==service.id))} />
+            {service.name}
+          </label>)}
+        </fieldset>
+        <button className="button primary" type="submit" disabled={working}>{working?"Salvando…":"Adicionar profissional"}</button>
+      </form>
+      {feedback && <p role="status">{feedback}</p>}
+      {operationError && <p role="alert">{operationError}</p>}
       <h2>Agenda</h2>
       <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Horário</th><th>Status</th></tr></thead><tbody>
         {[...appointments].sort((a,b) => a.startsAt.localeCompare(b.startsAt)).map((a) => (

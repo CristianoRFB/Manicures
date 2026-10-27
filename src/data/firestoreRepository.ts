@@ -1,4 +1,4 @@
-import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import type { Appointment, AuditLog, Membership, Professional, Service, Tenant } from "../domain/types";
 import { getFirebaseServices } from "../lib/firebase";
 import type { Repository } from "./repository";
@@ -27,6 +27,17 @@ export class FirestoreRepository implements Repository {
   async listTenants(): Promise<Tenant[]> {
     const snapshot = await getDocs(collection(dbOrThrow(), "tenants"));
     return snapshot.docs.map((item) => withId<Tenant>(item.id, item.data()));
+  }
+
+  async createService(tenantId: string, input: Pick<Service, "name" | "description" | "priceCents" | "durationMin">): Promise<Service> {
+    const name=input.name.trim();
+    if (name.length<2 || name.length>100 || !Number.isInteger(input.priceCents) || input.priceCents<0 ||
+        !Number.isInteger(input.durationMin) || input.durationMin<15 || input.durationMin>480)
+      throw new Error("Serviço inválido: confira nome, valor e duração.");
+    const record={tenantId,name,description:input.description.trim().slice(0,400),
+      priceCents:input.priceCents,durationMin:input.durationMin,active:true};
+    const ref=await addDoc(collection(dbOrThrow(),"tenants",tenantId,"services"),record);
+    return {id:ref.id,...record};
   }
 
   async listServices(tenantId: string): Promise<Service[]> {

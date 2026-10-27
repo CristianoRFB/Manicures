@@ -7,6 +7,7 @@ export interface Repository {
   getTenantBySlug(slug: string): Promise<Tenant | null>;
   listTenants(): Promise<Tenant[]>;
   listServices(tenantId: string): Promise<Service[]>;
+  createService(tenantId: string, input: Pick<Service, "name" | "description" | "priceCents" | "durationMin">): Promise<Service>;
   listProfessionals(tenantId: string): Promise<Professional[]>;
   listAppointments(tenantId: string): Promise<Appointment[]>;
   getMembership(tenantId: string, userId: string): Promise<Membership | null>;
@@ -32,6 +33,7 @@ export class DemoRepository implements Repository {
   }
   async listTenants() { return [demoTenant, demoTenantB]; }
   async listServices(tenantId: string) { return demoServices.filter((item) => item.tenantId === tenantId); }
+  async createService(): Promise<Service> { throw new Error("Administração exige Firebase Auth/Firestore; demo local é só leitura."); }
   async listProfessionals(tenantId: string) { return demoProfessionals.filter((item) => item.tenantId === tenantId); }
   async listAppointments(tenantId: string) { return readStoredAppointments().filter((item) => item.tenantId === tenantId); }
   async getMembership() { return null; }
