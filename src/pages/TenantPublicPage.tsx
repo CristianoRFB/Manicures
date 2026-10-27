@@ -23,7 +23,7 @@ export function TenantPublicPage() {
   return (
     <TenantTheme tenant={tenant}>
       <section className="page tenant-page">
-        <div className="badge">DEMONSTRAÇÃO</div>
+        {tenant.kind === "demo" && <div className="badge">DEMONSTRAÇÃO</div>}
         <div className="tenant-heading">
           <div className="logo-bubble">{tenant.branding.logoText}</div>
           <div>

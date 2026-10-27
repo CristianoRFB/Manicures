@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { repository } from "../data/repository";
+import { createProtectedBooking } from "../data/bookingApi";
 import type { Appointment, Professional, Service, Tenant } from "../domain/types";
-import { addMinutes, createSlots } from "../domain/availability";
+import { createSlots } from "../domain/availability";
 import { resolveTenant } from "../lib/tenantResolver";
 import { TenantTheme } from "../components/TenantTheme";
+import { demoModeEnabled } from "../lib/firebase";
 
 function tomorrow(): string {
   const d = new Date();
@@ -26,6 +28,10 @@ export function BookingPage() {
   const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
 
+  async function reloadAppointments(tenantId: string) {
+    setAppointments(await repository.listAppointments(tenantId));
+  }
+
   useEffect(() => {
     resolveTenant(repository, tenantSlug).then(async (resolved) => {
       if (!resolved) return;
@@ -33,7 +39,7 @@ export function BookingPage() {
       const [s, p, a] = await Promise.all([
         repository.listServices(resolved.id),
         repository.listProfessionals(resolved.id),
-        repository.listAppointments(resolved.id),
+        repository.listAppointments(resolved.id).catch(() => []),
       ]);
       setServices(s);
       setProfessionals(p);
@@ -62,26 +68,14 @@ export function BookingPage() {
       setMessage("Preencha os dados e selecione um horário.");
       return;
     }
-    const now = new Date().toISOString();
-    const appointment: Appointment = {
-      id: crypto.randomUUID(),
-      tenantId: tenant.id,
-      customerName: name.trim(),
-      customerPhone: phone.trim(),
-      professionalId: professional.id,
-      serviceId: service.id,
-      startsAt: slot,
-      endsAt: addMinutes(slot, service.durationMin),
-      priceSnapshotCents: service.priceCents,
-      durationSnapshotMin: service.durationMin,
-      status: "pending",
-      createdAt: now,
-      updatedAt: now,
-    };
+    if (demoModeEnabled()) {
+      setMessage("Demo local é somente visual. Para confirmar booking real, use Firebase + Booking Worker/emulators.");
+      return;
+    }
     try {
-      await repository.createAppointment(appointment);
-      setAppointments(await repository.listAppointments(tenant.id));
-      setMessage("Agendamento criado na DEMO. Abra o painel para conferi-lo.");
+      await createProtectedBooking({ tenant, service, professionalId: professional.id, startsAt: slot, customerName: name.trim(), customerPhone: phone.trim() });
+      await reloadAppointments(tenant.id).catch(() => undefined);
+      setMessage("Agendamento criado com validação confiável.");
       setSlot("");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível criar o agendamento.");
@@ -93,7 +87,7 @@ export function BookingPage() {
   return (
     <TenantTheme tenant={tenant}>
       <section className="page narrow">
-        <div className="badge">DEMONSTRAÇÃO</div>
+        {tenant.kind === "demo" && <div className="badge">DEMONSTRAÇÃO</div>}
         <h1>Novo agendamento</h1>
         <form className="form" onSubmit={submit}>
           <label>Serviço<select value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlot(""); }}>
@@ -104,14 +98,11 @@ export function BookingPage() {
           </select></label>
           <label>Data<input type="date" value={date} onChange={(e) => { setDate(e.target.value); setSlot(""); }} /></label>
           <fieldset><legend>Horário</legend><div className="slot-grid">
-            {slots.map((item) => {
-              const time = item.split("T")[1].slice(0, 5);
-              return <button type="button" key={item} className={slot === item ? "slot selected" : "slot"} onClick={() => setSlot(item)}>{time}</button>;
-            })}
+            {slots.map((item) => <button type="button" key={item} className={slot === item ? "slot selected" : "slot"} onClick={() => setSlot(item)}>{item.split("T")[1].slice(0,5)}</button>)}
           </div></fieldset>
-          <label>Nome<input value={name} onChange={(e) => setName(e.target.value)} placeholder="Cliente Demonstração" /></label>
-          <label>Telefone<input value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="00000000000" /></label>
-          <button className="button primary" type="submit">Confirmar agendamento DEMO</button>
+          <label>Nome<input value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <label>Telefone<input value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
+          <button className="button primary" type="submit">Confirmar agendamento</button>
         </form>
         {message && <div className="callout">{message}</div>}
         <Link to={`/app/${tenant.slug}`}>Ir para o painel →</Link>
