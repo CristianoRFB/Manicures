@@ -92,6 +92,29 @@ export function TenantAdminPage() {
     finally{setWorking(false);}
   }
 
+  async function changeStatus(appointmentId:string,status:Appointment["status"]) {
+    if(!tenant||!user||working)return;
+    setWorking(true);setFeedback("");setOperationError("");
+    try{
+      const api=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!api)throw new Error("Booking Worker não configurado.");
+      const response=await fetch(`${api.replace(/\/$/,"")}/api/admin/appointments/status`,{
+        method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:tenant.id,appointmentId,status}),
+      });
+      const data=await response.json() as {error?:string};
+      if(!response.ok)throw new Error(data.error??"Transição não permitida.");
+      await refresh();
+      setFeedback("Status do atendimento atualizado com auditoria.");
+    }catch(err){setOperationError(err instanceof Error?err.message:"Falha de rede.");}
+    finally{setWorking(false);}
+  }
+  const actionByStatus:Partial<Record<Appointment["status"],Array<{label:string;next:Appointment["status"]}>>> = {
+    pending:[{label:"Confirmar",next:"confirmed"},{label:"Cancelar",next:"cancelled"}],
+    confirmed:[{label:"Iniciar",next:"in_service"},{label:"No-show",next:"no_show"},{label:"Cancelar",next:"cancelled"}],
+    in_service:[{label:"Concluir",next:"completed"}],
+  };
+
   async function addService(event: React.FormEvent) {
     event.preventDefault();
     if (!tenant || working) return;
@@ -163,7 +186,7 @@ export function TenantAdminPage() {
       {feedback && <p role="status">{feedback}</p>}
       {operationError && <p role="alert">{operationError}</p>}
       <h2>Agenda</h2>
-      <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Horário</th><th>Status</th></tr></thead><tbody>
+      <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Horário</th><th>Status</th><th>Ações</th></tr></thead><tbody>
         {[...appointments].sort((a,b) => a.startsAt.localeCompare(b.startsAt)).map((a) => (
           <tr key={a.id}><td>{a.customerName}</td><td>{services.find((s) => s.id === a.serviceId)?.name ?? a.serviceId}</td><td>{professionals.find((p) => p.id === a.professionalId)?.name ?? a.professionalId}</td><td>{a.startsAt.replace("T", " ").slice(0,16)}</td><td>{a.status}</td></tr>
         ))}

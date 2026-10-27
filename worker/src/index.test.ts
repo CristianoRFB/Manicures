@@ -165,6 +165,43 @@ describe("Trusted commercial and professional writes",()=>{
     expect(logs.docs[0].data().before.planId).toBe("pro");
     expect(logs.docs[0].data().actorId).toBe("platform");
   });
+  it("consulta disponibilidade sem expor PII e atualiza após booking/cancelamento",async()=>{
+    const availability=()=>worker.fetch(new Request("http://worker.local/api/availability?tenantId=a&serviceId=s1&professionalId=p1&date=2026-11-03"),env());
+    const first=await availability();
+    expect(first.status).toBe(200);
+    const initial=await first.json() as {slots:string[]};
+    expect(initial.slots).toContain("2026-11-03T14:00:00");
+    expect(JSON.stringify(initial)).not.toContain("customerPhone");
+    const booking=await book("a","2026-11-03T14:00:00");
+    expect(booking.status).toBe(201);
+    const body=await booking.json() as {appointment:{id:string}};
+    const occupied=await (await availability()).json() as {slots:string[]};
+    expect(occupied.slots).not.toContain("2026-11-03T14:00:00");
+    const token=await signedToken("ownerA");
+    const cancel=await worker.fetch(new Request("http://worker.local/api/admin/appointments/status",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},
+      body:JSON.stringify({tenantId:"a",appointmentId:body.appointment.id,status:"cancelled"}),
+    }),env());
+    expect(cancel.status).toBe(200);
+    const released=await (await availability()).json() as {slots:string[]};
+    expect(released.slots).toContain("2026-11-03T14:00:00");
+    const appointment=(await getFirestore(adminApp).doc(`tenants/a/appointments/${body.appointment.id}`).get()).data();
+    expect(appointment?.status).toBe("cancelled");
+  });
+  it("status inválido e usuário de outro tenant são rejeitados",async()=>{
+    const booking=await book("a","2026-11-03T14:00:00");
+    expect(booking.status).toBe(201);
+    const body=await booking.json() as {appointment:{id:string}};
+    const status=async (uid:string,next:string)=>worker.fetch(new Request("http://worker.local/api/admin/appointments/status",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId:"a",appointmentId:body.appointment.id,status:next}),
+    }),env());
+    expect((await status("ownerB","confirmed")).status).toBe(403);
+    expect((await status("ownerA","no_show")).status).toBe(409);
+    expect((await status("ownerA","confirmed")).status).toBe(200);
+    expect((await status("ownerA","completed")).status).toBe(409);
+  });
+
   it("tenant owner não atribui plano nem falsifica operador",async()=>{
     const token=await signedToken("ownerA");
     const response=await worker.fetch(new Request("http://worker.local/api/admin/plans/assign",{
