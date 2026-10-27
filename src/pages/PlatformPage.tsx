@@ -54,8 +54,13 @@ export function PlatformPage() {
     });
     setProfessionalCap(current?.limitOverrides?.professionals_active?.toString() ?? "");
     setAdminCap(current?.limitOverrides?.tenant_admins?.toString() ?? "");
-    setOverrideMode("inherit");
+
   }, [selected]);
+
+  useEffect(() => {
+    const current = selected?.commercial?.entitlementOverrides?.[overrideFeature];
+    setOverrideMode(current===true?"allow":current===false?"deny":"inherit");
+  },[selected,overrideFeature]);
 
   async function assignPlan(event: React.FormEvent) {
     event.preventDefault();
@@ -159,7 +164,7 @@ export function PlatformPage() {
         <fieldset>
           <legend>Overrides manuais (apenas funções implementadas)</legend>
           <label>Funcionalidade
-            <select value={overrideFeature} onChange={(e)=>{setOverrideFeature(e.target.value as FeatureKey);setOverrideMode("inherit");}}>
+            <select value={overrideFeature} onChange={(e)=>setOverrideFeature(e.target.value as FeatureKey)}>
               {[...IMPLEMENTED_FEATURES].sort().map(key=><option key={key} value={key}>{key}</option>)}
             </select>
           </label>
