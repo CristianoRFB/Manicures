@@ -17,7 +17,9 @@
     "emulators": "firebase emulators:start --only auth,firestore,storage",
     "emulators:seed": "node scripts/seed-emulator.mjs",
     "worker:check": "tsc -p worker/tsconfig.json --pretty false",
-    "check": "npm run typecheck && npm test && npm run worker:check && npm run docs:check"
+    "check": "npm run typecheck && npm test && npm run worker:check && npm run test:emulator && npm run docs:check",
+    "test:worker": "firebase emulators:exec --only firestore \"vitest run worker/src/index.test.ts\"",
+    "test:emulator": "firebase emulators:exec --only firestore \"vitest run src/test/firestore.rules.test.ts worker/src/index.test.ts\""
   },
   "dependencies": {
     "firebase": "11.0.2",

@@ -21,6 +21,6 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run worker:check
-      - run: npm run test:rules
+      - run: npm run test:emulator
       - run: npm run docs:check
       - run: npm run build

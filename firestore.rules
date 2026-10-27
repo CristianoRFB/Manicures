@@ -5,7 +5,7 @@ service cloud.firestore {
     function membershipId(tenantId) { return tenantId + "_" + request.auth.uid; }
     function membershipExists(tenantId) { return signedIn() && exists(/databases/$(database)/documents/memberships/$(membershipId(tenantId))); }
     function membership(tenantId) { return get(/databases/$(database)/documents/memberships/$(membershipId(tenantId))); }
-    function activeMember(tenantId) { return membershipExists(tenantId) && membership(tenantId).data.status == "active"; }
+    function activeMember(tenantId) { return tenantActive(tenantId) && membershipExists(tenantId) && membership(tenantId).data.status == "active"; }
     function tenantRole(tenantId, roles) { return activeMember(tenantId) && membership(tenantId).data.role in roles; }
     function isPlatformOwner() {
       return signedIn()
@@ -44,7 +44,6 @@ service cloud.firestore {
       }
 
       match /appointments/{appointmentId} {
-        // Criação pública é feita somente pelo Booking Worker usando credencial de servidor.
         allow create: if false;
         allow read: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"])
           || professionalOwnsAppointment(tenantId)
