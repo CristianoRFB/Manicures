@@ -1,26 +1,23 @@
-NEXT GOAL — VALIDAR CORE FIREBASE E FECHAR READINESS
+NEXT GOAL — GLOBAL STANDARD v01 (AGUARDAR NOVA ORDEM)
 
-A implementação CORE desta branch já substituiu sessão fake por Firebase Auth, adicionou FirestoreRepository, memberships/RBAC, Platform Owner, Tenant B, Rules tenant-aware e Booking Worker com bookingLocks.
+O CORE da Manicure está tecnicamente pronto para o próximo estágio.
 
-PRÓXIMO TRABALHO:
-1. partir do SHA final desta branch;
-2. garantir GitHub Actions verde;
-3. executar Firebase Emulator Suite + seed + app + Worker localmente;
-4. validar end-to-end Tenant A × Tenant B, Platform Owner e booking concorrente;
-5. corrigir apenas falhas reais encontradas;
-6. depois executar fase documental visual final: screenshots reais, diagramas atualizados, generated visuals conceituais separados, manifestos e docs:check;
-7. produzir readiness gate final.
-
-NÃO implementar ainda:
-- PlanCatalog/EntitlementService completos;
-- FeatureGating comercial completo;
-- billing/gateway/checkout;
-- landing/pricing;
-- multi-unidade;
-- biblioteca global.
-
-RESULTADO:
+READINESS_STATUS:
 READY_FOR_GLOBAL_STANDARD_IMPLEMENTATION
-ou
-NEEDS_MULTITENANT_CORE_FIRST
-com evidência do CI/emulators, sem fingir PASS.
+
+Evidência:
+- code SHA validado: 3667c1ef6137be80ebbd147c7a11f59cc33a3f8c
+- GitHub Actions run 40509207543: PASS em typecheck, unit, Worker, emulator Rules/booking, docs:check e build.
+
+NÃO execute automaticamente este próximo estágio sem uma nova ordem explícita.
+
+Quando autorizado, implementar o Global Standard v01 usando SOMENTE preços, limites, trial e feature distribution já aprovados em docs/consolidation.
+
+Continuam fora:
+- billing/gateway/checkout/webhooks/dunning;
+- marketplace;
+- custom domain automático;
+- biblioteca global compartilhada;
+- NEXT/DEFERRED não necessários ao standard.
+
+Screenshots reais continuam pendentes até existir ferramenta/ambiente interativo adequado; não substituir por mockup ou imagem gerada.

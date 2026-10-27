@@ -1,30 +1,26 @@
 # CURRENT
 
-## Versão ativa
-
+CURRENT VERSION:
 `v01-codex-ready-core-first`
 
-## Fonte documental canônica
+## Estado técnico
+`READY_FOR_GLOBAL_STANDARD_IMPLEMENTATION`
 
+A versão canônica continua em:
 `docs/versions/v01-codex-ready-core-first/`
 
-## Estado
+O CORE multi-tenant foi implementado e validado em CI. A próxima mudança arquitetural relevante será a aplicação do Global Standard v01 em trabalho separado.
 
-`CORE_FIRST`
+## Fonte de verdade
+- código: branch `feat/core-multitenant-firebase` até revisão/merge;
+- documentação vigente: esta versão;
+- decisões comerciais: `docs/consolidation/`.
 
-Esta base continua pré-Codex. O novo padrão visual/documental é obrigatório no encerramento da próxima implementação.
+## Regra
+Antes de alterar arquitetura, banco, Auth, tenants, pricing, white-label, rotas, segurança ou deploy, leia este arquivo e a documentação vigente.
 
-## Regra visual
-
-Leia `docs/ecosystem/SAAS_PADRAO_DOCS_LEADS_IMAGENS_GERADAS.md`.
-
-Nunca misturar:
-- screenshot real;
-- diagrama técnico;
-- imagem gerada/conceitual.
-
-## Próximo objetivo
-
-Concluir o CORE Firebase real, validar Tenant A × Tenant B e somente **depois** executar a fase final de documentação visual, screenshots, diagramas, generated visuals e manifestos.
-
-O Global Standard de pricing/entitlements completo continua fora deste GOAL.
+Não confundir:
+- código/CI = evidência técnica;
+- screenshot real = evidência visual de UI executada;
+- diagrama = representação técnica;
+- generated visual = conceito.

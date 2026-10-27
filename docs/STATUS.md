@@ -1,30 +1,56 @@
 # STATUS
 
 ## Stage
-`CORE_FIRST`
+`CORE_FIRST` concluído no código desta branch.
 
-## Implementação atual desta branch
-- React/Vite/TypeScript base preservada;
+## READINESS_STATUS
+`READY_FOR_GLOBAL_STANDARD_IMPLEMENTATION`
+
+## Evidência
+Código CORE validado no commit:
+`3667c1ef6137be80ebbd147c7a11f59cc33a3f8c`
+
+GitHub Actions:
+- run: `40509207543`
+- typecheck: PASS
+- unit tests: PASS
+- Worker typecheck: PASS
+- Firebase Emulator Suite (Rules + Booking Worker): PASS
+- docs:check: PASS
+- build: PASS
+
+## Readiness Gate
+| Requisito | Estado | Evidência |
+|---|---|---|
+| Tenant resolver confiável | PASS | resolver por tenantSlugs + teste unitário |
+| Isolamento Tenant A × Tenant B | PASS | Rules emulator + Worker lock isolation |
+| Memberships/RBAC | PASS | Rules emulator por roles e membership disabled |
+| Security Rules/backend tenant-aware | PASS | Firestore/Storage Rules + Booking Worker |
+| Platform Owner | PASS | platformUsers + acesso global explícito e auditável |
+| Fonte de verdade do repo | PASS | GitHub CristianoRFB/Manicures |
+| Feature states auditados | PASS | docs/consolidation/FEATURE_MATRIX_APPROVED.md |
+| Pricing/feature matrix aprovada | PASS | docs/consolidation + decisões vigentes |
+
+## Implementação comprovada nesta branch
 - Firebase Auth real por configuração/env;
-- FirestoreRepository real para tenants, services, professionals, appointments, memberships e audit logs;
-- Tenant resolver por `tenantSlugs/{slug}` + validação de status;
-- memberships/RBAC persistidos;
-- Platform Owner real via `platformUsers/{uid}`;
-- segundo tenant DEMO B separado;
-- áreas privadas sem sessão fake;
+- FirestoreRepository;
+- Tenant resolver por slug/status;
+- memberships/RBAC;
+- Platform Owner;
+- Tenant A e Tenant B DEMO isolados;
 - Firestore/Storage Rules tenant-aware;
-- criação pública de Appointment bloqueada no Firestore client;
-- Booking Worker confiável com Service Account + locks determinísticos para impedir overlap concorrente;
-- emulator seed e testes de Rules A × B;
-- CI para typecheck, unit, worker, emulator rules, docs e build.
+- criação pública direta de Appointment bloqueada;
+- Booking Worker confiável com locks determinísticos e snapshots;
+- testes negativos de privilege/cross-tenant/tenantId swap/suspensão;
+- CI e documentação visual baseline.
 
-## Ainda fora deste GOAL
-- PlanCatalog/EntitlementService/FeatureGating comercial completos;
-- billing/gateway;
-- landing/pricing;
-- WhatsApp oficial;
-- multi-unidade;
-- NEXT/DEFERRED.
+## Não significa
+- não houve deploy em produção;
+- não houve escrita em Firebase de produção;
+- não houve deploy do Worker em produção;
+- não houve merge na main;
+- screenshots reais de navegador continuam pendentes por ausência de execução browser/local interativa nesta ferramenta;
+- Global Standard de pricing/entitlements ainda NÃO foi implementado.
 
-## Evidência pendente
-A branch precisa passar pelo GitHub Actions no SHA final. Resultado de CI deve ser registrado antes de declarar READY_FOR_GLOBAL_STANDARD_IMPLEMENTATION.
+## Próximo estágio permitido
+Global Standard v01: PlanCatalog, EntitlementService, FeatureGating, Limits, DemoMode, SubscriptionStatus, TenantOverrides, ManualPlanAssignment e downgrade preservando dados — em trabalho separado.
