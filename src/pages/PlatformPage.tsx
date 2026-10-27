@@ -19,6 +19,11 @@ export function PlatformPage() {
   const [selectedId, setSelectedId] = useState("");
   const [form, setForm] = useState<Assignment>(initial);
   const [saving, setSaving] = useState(false);
+  const [adminUid, setAdminUid] = useState("");
+  const [adminStatus, setAdminStatus] = useState<"active" | "disabled">("active");
+  const [adminSaving, setAdminSaving] = useState(false);
+  const [adminResult, setAdminResult] = useState("");
+  const [adminError, setAdminError] = useState("");
 
   async function reload() {
     const list = await repository.listTenants();
@@ -66,6 +71,31 @@ export function PlatformPage() {
     finally {setSaving(false);}
   }
 
+  async function saveAdmin(event: React.FormEvent) {
+    event.preventDefault();
+    if (!user || !selected || adminSaving) return;
+    setAdminSaving(true);
+    setAdminResult("");
+    setAdminError("");
+    try {
+      const api=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!api) throw new Error("Worker não configurado.");
+      const response=await fetch(`${api.replace(/\/$/,"")}/api/admin/memberships/tenant-admin`, {
+        method:"POST",
+        headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:selected.id,userId:adminUid.trim(),status:adminStatus}),
+      });
+      const result=await response.json() as {error?:string};
+      if(!response.ok)throw new Error(result.error??"Falha ao atualizar o administrador.");
+      setAdminResult("Associação de administrador atualizada com auditoria.");
+      setAdminUid("");
+    } catch(error) {
+      setAdminError(error instanceof Error ? error.message : "Falha de comunicação.");
+    } finally {
+      setAdminSaving(false);
+    }
+  }
+
   if (loading) return <section className="page">Validando sessão…</section>;
   if (!user) return <LoginPanel title="Administração da plataforma" />;
   if (authorized === null) return <section className="page">Validando Platform Owner…</section>;
@@ -108,6 +138,28 @@ export function PlatformPage() {
         {form.status === "trial" && <p>Trial aprovado: 14 dias sem cartão, contados na atribuição pelo servidor.</p>}
         <button className="button primary" disabled={saving || !selected} type="submit">{saving?"Salvando…":"Aplicar e auditar"}</button>
         {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
+      </form>
+    </section>
+    <section aria-labelledby="staff-admin-heading">
+      <h2 id="staff-admin-heading">Administradores adicionais</h2>
+      <p>Somente Platform Owner pode criar associações novas. O Worker aplica o limite 0 / 2 / 5 por plano e registra auditoria; desativar preserva o histórico.</p>
+      <form className="form narrow" onSubmit={(event)=>void saveAdmin(event)}>
+        <label>Identificador do tenant
+          <input value={selected?.name ?? ""} readOnly />
+        </label>
+        <label>UID de uma conta Firebase existente
+          <input value={adminUid} pattern="[a-zA-Z0-9_-]{1,128}" required
+            autoComplete="off" onChange={(event)=>setAdminUid(event.target.value)} />
+        </label>
+        <label>Operação
+          <select value={adminStatus} onChange={(event)=>setAdminStatus(event.target.value as "active"|"disabled")}>
+            <option value="active">Ativar administrador</option>
+            <option value="disabled">Desativar administrador</option>
+          </select>
+        </label>
+        <button className="button primary" disabled={!selected || adminSaving} type="submit">{adminSaving?"Salvando…":"Atualizar administrador"}</button>
+        {adminResult && <p role="status">{adminResult}</p>}
+        {adminError && <p role="alert">{adminError}</p>}
       </form>
     </section>
   </section>;
