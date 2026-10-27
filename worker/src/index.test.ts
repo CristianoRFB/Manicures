@@ -186,6 +186,36 @@ describe("Trusted commercial and professional writes",()=>{
     expect(active).toHaveLength(2);
   });
 
+  async function activateProfessional(tenantId:string, actorUid:string, professionalId:string,active:boolean) {
+    return worker.fetch(new Request("http://worker.local/api/admin/professionals/activation",{
+      method:"POST",
+      headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(actorUid)}`},
+      body:JSON.stringify({tenantId,professionalId,active}),
+    }),env());
+  }
+  it("desativar e reativar profissional ajusta quota sem remover histórico",async()=>{
+    expect((await activateProfessional("a","ownerA","p1",false)).status).toBe(200);
+    expect((await getFirestore(adminApp).doc("tenants/a/professionals/p1").get()).data()?.active).toBe(false);
+    expect((await activateProfessional("a","ownerA","p1",true)).status).toBe(200);
+    const counter=(await getFirestore(adminApp).doc("tenants/a/usage/staff").get()).data();
+    expect(counter?.professionalsActive).toBe(1);
+  });
+  it("não permite desativar profissional com booking futuro confirmado",async()=>{
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(201);
+    expect((await activateProfessional("a","ownerA","p1",false)).status).toBe(409);
+  });
+  it("não permite reativar profissional acima do teto após downgrade",async()=>{
+    const created=await create("a","ownerA","Segunda manicure");
+    expect(created.status).toBe(201);
+    const body=await created.json() as {professional:{id:string}};
+    expect((await activateProfessional("a","ownerA",body.professional.id,false)).status).toBe(200);
+    await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"essencial",subscriptionStatus:"active"}});
+    expect((await activateProfessional("a","ownerA",body.professional.id,true)).status).toBe(409);
+    expect((await getFirestore(adminApp).doc(`tenants/a/professionals/${body.professional.id}`).get()).exists).toBe(true);
+  });
+  it("owner A não pode alterar profissional em B",async()=>{
+    expect((await activateProfessional("b","ownerA","p1",false)).status).toBe(403);
+  });
   it("Pro 3: contador atômico barra criação acima do limite",async()=>{
     expect((await create("a","ownerA","Segunda manicure")).status).toBe(201);
     expect((await create("a","ownerA","Terceira manicure")).status).toBe(201);
