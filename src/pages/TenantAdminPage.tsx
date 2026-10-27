@@ -14,6 +14,7 @@ export function TenantAdminPage() {
   const { tenantSlug } = useParams();
   const { user, loading, logout } = useAuth();
   const [tenant, setTenant] = useState<Tenant | null>(null);
+  const [tenantLoading, setTenantLoading] = useState(true);
   const [membership, setMembership] = useState<Membership | null>(null);
   const [platformOwner, setPlatformOwner] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
@@ -32,40 +33,74 @@ export function TenantAdminPage() {
   const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
-    resolveTenant(repository, tenantSlug).then(setTenant).catch(err => setLoadError(err instanceof Error ? err.message : "Falha ao carregar tenant."));
+    let active=true;
+    setTenantLoading(true);
+    setTenant(null);
+    setMembership(null);
+    setPlatformOwner(false);
+    setAppointments([]);
+    setServices([]);
+    setProfessionals([]);
+    setLoadError("");
+    auditLogged.current=false;
+    resolveTenant(repository, tenantSlug).then(value => {
+      if(active) setTenant(value);
+    }).catch(error => {
+      if(active) setLoadError(error instanceof Error ? error.message : "Falha ao carregar tenant.");
+    }).finally(()=>{
+      if(active) setTenantLoading(false);
+    });
+    return () => {active=false;};
   }, [tenantSlug]);
 
   useEffect(() => {
-    if (!tenant || !user) {
-      setMembership(null);
-      setPlatformOwner(false);
-      return;
+    let active=true;
+    setMembership(null);
+    setPlatformOwner(false);
+    if (tenant && user) {
+      Promise.all([
+        repository.getMembership(tenant.id,user.uid).catch(()=>null),
+        repository.isPlatformOwner(user.uid).catch(()=>false),
+      ]).then(([member,isOwner])=>{
+        if(!active)return;
+        setMembership(member?.tenantId===tenant.id ? member : null);
+        setPlatformOwner(isOwner);
+      }).catch(error=>{
+        if(active)setLoadError(error instanceof Error ? error.message : "Falha ao validar acesso.");
+      });
     }
-    Promise.all([
-      repository.getMembership(tenant.id, user.uid).catch(() => null),
-      repository.isPlatformOwner(user.uid).catch(() => false),
-    ]).then(([nextMembership, isOwner]) => {
-      setMembership(nextMembership);
-      setPlatformOwner(isOwner);
-    });
-  }, [tenant, user]);
+    return ()=>{active=false;};
+  }, [tenant?.id, user?.uid]);
 
-  const authorized = useMemo(() => platformOwner || Boolean(membership?.status === "active" && ADMIN_ROLES.has(membership.role)), [membership, platformOwner]);
+  const authorized = useMemo(() =>
+    platformOwner || Boolean(membership?.tenantId===tenant?.id && membership.status==="active" && ADMIN_ROLES.has(membership.role)),
+    [membership,platformOwner,tenant?.id]);
 
   useEffect(() => {
-    if (!tenant || !user || !authorized) return;
+    if(!tenant || !user || !authorized)return;
+    let active=true;
+    setAppointments([]);
+    setServices([]);
+    setProfessionals([]);
     Promise.all([
-      repository.listAppointments(tenant.id), repository.listServices(tenant.id), repository.listProfessionals(tenant.id,{includeInactive:true}),
-    ]).then(([a,s,p]) => { setAppointments(a); setServices(s); setProfessionals(p); });
-
-    if (platformOwner && !auditLogged.current) {
-      auditLogged.current = true;
+      repository.listAppointments(tenant.id),
+      repository.listServices(tenant.id),
+      repository.listProfessionals(tenant.id,{includeInactive:true}),
+    ]).then(([a,s,p])=>{
+      if(!active)return;
+      setAppointments(a);setServices(s);setProfessionals(p);
+    }).catch(error=>{
+      if(active)setLoadError(error instanceof Error ? error.message : "Não foi possível carregar os dados.");
+    });
+    if(platformOwner && !auditLogged.current){
+      auditLogged.current=true;
       repository.recordAuditLog({
-        id: crypto.randomUUID(), actorId: user.uid, actorRole: "platform_owner", tenantId: tenant.id,
-        action: "platform.view_tenant", resourceType: "tenant", resourceId: tenant.id, createdAt: new Date().toISOString(),
-      }).catch(() => undefined);
+        id:crypto.randomUUID(),actorId:user.uid,actorRole:"platform_owner",tenantId:tenant.id,
+        action:"platform.view_tenant",resourceType:"tenant",resourceId:tenant.id,createdAt:new Date().toISOString(),
+      }).catch(()=>undefined);
     }
-  }, [tenant, user, authorized, platformOwner]);
+    return ()=>{active=false;};
+  },[tenant?.id,user?.uid,authorized,platformOwner]);
 
   async function refresh() {
     if (!tenant) return;
@@ -150,6 +185,7 @@ export function TenantAdminPage() {
   }
 
   if (loading) return <section className="page">Validando sessão…</section>;
+  if (tenantLoading) return <section className="page" role="status">Carregando tenant…</section>;
   if (!user) return <LoginPanel title="Painel do tenant" />;
   if (loadError) return <section className="page" role="alert">{loadError}</section>;
   if (!tenant) return <section className="page">Tenant não encontrado ou suspenso.</section>;
