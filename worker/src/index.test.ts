@@ -134,6 +134,58 @@ describe("Trusted commercial and professional writes",()=>{
       body:JSON.stringify({tenantId,name,serviceIds:["s1"]}),
     }),env());
   }
+  async function manageAdmin(tenantId:string,actorUid:string,targetUserId:string,status:"active"|"disabled"="active") {
+    return worker.fetch(new Request("http://worker.local/api/admin/memberships/tenant-admin",{
+      method:"POST",
+      headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(actorUid)}`},
+      body:JSON.stringify({tenantId,userId:targetUserId,status}),
+    }),env());
+  }
+  it("Pro: limita a dois administradores adicionais, com auditoria",async()=>{
+    expect((await manageAdmin("a","platform","admin1")).status).toBe(200);
+    expect((await manageAdmin("a","platform","admin2")).status).toBe(200);
+    expect((await manageAdmin("a","platform","admin3")).status).toBe(409);
+    const doc=await getFirestore(adminApp).doc("tenants/a/usage/staff").get();
+    expect(doc.data()?.tenantAdminsAdditional).toBe(2);
+    const logs=await getFirestore(adminApp).collection("tenants/a/auditLogs").get();
+    expect(logs.size).toBe(2);
+  });
+  it("desativar admin libera quota sem apagar membership nem histórico",async()=>{
+    expect((await manageAdmin("a","platform","admin1")).status).toBe(200);
+    expect((await manageAdmin("a","platform","admin1","disabled")).status).toBe(200);
+    const member=await getFirestore(adminApp).doc("memberships/a_admin1").get();
+    expect(member.data()?.status).toBe("disabled");
+    expect((await manageAdmin("a","platform","admin2")).status).toBe(200);
+    const counter=await getFirestore(adminApp).doc("tenants/a/usage/staff").get();
+    expect(counter.data()?.tenantAdminsAdditional).toBe(1);
+  });
+  it("Essencial não aceita administrador adicional",async()=>{
+    await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"essencial",subscriptionStatus:"active"}});
+    expect((await manageAdmin("a","platform","admin1")).status).toBe(409);
+  });
+  it("usuário de A não altera admin de B; owner não cria membership não verificada",async()=>{
+    expect((await manageAdmin("b","ownerA","adminB")).status).toBe(403);
+    expect((await manageAdmin("a","ownerA","novoAdmin")).status).toBe(403);
+  });
+  it("downgrade não apaga admins existentes e impede ampliar excedente",async()=>{
+    expect((await manageAdmin("a","platform","admin1")).status).toBe(200);
+    await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"essencial",subscriptionStatus:"active"}});
+    expect((await getFirestore(adminApp).doc("memberships/a_admin1").get()).exists).toBe(true);
+    expect((await manageAdmin("a","platform","admin2")).status).toBe(409);
+    expect((await manageAdmin("a","platform","admin1","disabled")).status).toBe(200);
+  });
+  it("criação concorrente não ultrapassa limite de administradores",async()=>{
+    expect((await manageAdmin("a","platform","admin1")).status).toBe(200);
+    const results=await Promise.all([
+      manageAdmin("a","platform","admin2"),
+      manageAdmin("a","platform","admin3"),
+    ]);
+    expect(results.filter(r=>r.status===200)).toHaveLength(1);
+    const active=(await getFirestore(adminApp).collection("memberships").get()).docs
+      .filter(doc=>doc.data().tenantId==="a" && doc.data().role==="tenant_admin" && doc.data().status==="active");
+    expect(active).toHaveLength(2);
+  });
+
   it("Pro 3: contador atômico barra criação acima do limite",async()=>{
     expect((await create("a","ownerA","Segunda manicure")).status).toBe(201);
     expect((await create("a","ownerA","Terceira manicure")).status).toBe(201);
