@@ -596,6 +596,86 @@ async function updateAppointmentStatus(request:Request,env:Env):Promise<Response
   return json(env,{ok:true,id:appointmentId,status:nextStatus,auditId});
 }
 
+
+/** Admin membership mutations are serialized with usage/staff CAS, preserving existing tenants. */
+async function manageTenantAdmin(request:Request, env:Env):Promise<Response> {
+  const payload = await request.json() as Record<string,unknown>;
+  const tenantId = typeof payload.tenantId === "string" ? payload.tenantId : "";
+  const userId = typeof payload.userId === "string" ? payload.userId : "";
+  const status = payload.status === "active" || payload.status === "disabled" ? payload.status : "";
+  if (![tenantId,userId].every(id => /^[a-zA-Z0-9_-]{1,128}$/.test(id)) || !status)
+    return json(env,{error:"Tenant, usuário ou status inválidos."},400);
+
+  const token = env.FIRESTORE_EMULATOR_HOST ? "" : await serviceAccessToken(env);
+  const actor = await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor || !["tenant_owner","platform_owner"].includes(actor.actorRole))
+    return json(env,{error:"Apenas o proprietário pode administrar acessos."},403);
+
+  const [tenant,existing] = await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`memberships/${tenantId}_${userId}`),
+  ]);
+  if(!tenant) return json(env,{error:"Tenant inexistente."},404);
+  if(!existing && actor.actorRole!=="platform_owner")
+    return json(env,{error:"Nova associação exige cadastro ou convite verificado pela plataforma."},403);
+  if(existing && (str(existing,"tenantId")!==tenantId || str(existing,"userId")!==userId ||
+      !["tenant_admin","professional","customer"].includes(str(existing,"role"))))
+    return json(env,{error:"Membership não pode ser alterada por este fluxo."},403);
+  if(userId===actor.actorId) return json(env,{error:"Não é permitido alterar o próprio acesso por este fluxo."},403);
+
+  const previouslyActive = !!existing && str(existing,"role")==="tenant_admin" && str(existing,"status")==="active";
+  const nextActive = status==="active";
+  const delta = Number(nextActive)-Number(previouslyActive);
+  const counterPath = `tenants/${tenantId}/usage/staff`;
+  const counter = await getDocument(env,token,counterPath);
+  const currentCount = counter && counter.fields?.tenantAdminsAdditional?.integerValue !== undefined
+    ? int(counter,"tenantAdminsAdditional")
+    : (await listDocuments(env,token,"memberships")).filter(item =>
+        str(item,"tenantId")===tenantId && str(item,"role")==="tenant_admin" && str(item,"status")==="active").length;
+  if(!Number.isSafeInteger(currentCount) || currentCount<0 || currentCount+delta<0)
+    return json(env,{error:"Contador de administradores inconsistente."},409);
+  const max = getLimit(asTenant(tenant,tenantId),"tenant_admins");
+  if(delta>0 && (max===0 || (max!==null && currentCount+delta>max)))
+    return json(env,{error:`Limite de administradores adicionais atingido (${currentCount}/${max}).`},409);
+
+  const now = new Date().toISOString(), auditId = crypto.randomUUID();
+  const member = {
+    tenantId,userId,role:"tenant_admin",status,updatedAt:now,
+  };
+  const writes = [
+    {
+      update:{name:docName(env,`memberships/${tenantId}_${userId}`),fields:fields(member)},
+      currentDocument: existing?.updateTime ? {updateTime:existing.updateTime} : {exists:false},
+    },
+    {
+      update:{name:docName(env,counterPath),fields:fields({tenantAdminsAdditional:currentCount+delta,updatedAt:now})},
+      updateMask:{fieldPaths:["tenantAdminsAdditional","updatedAt"]},
+      currentDocument: counter?.updateTime ? {updateTime:counter.updateTime} : {exists:false},
+    },
+    {
+      update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+        fields:fields({
+          tenantId,actorId:actor.actorId,actorRole:actor.actorRole,action:"membership.tenant_admin",
+          resourceType:"membership",resourceId:`${tenantId}_${userId}`,
+          before:existing ? {role:str(existing,"role"),status:str(existing,"status")} : {},
+          after:member,createdAt:now,
+        })},
+      currentDocument:{exists:false},
+    },
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok) {
+    const body=await response.text();
+    if([409,412].includes(response.status) || /FAILED_PRECONDITION|ALREADY_EXISTS|ABORTED/.test(body))
+      return json(env,{error:"Equipe alterada simultaneamente. Atualize e tente novamente."},409);
+    console.error("Admin membership commit rejected",response.status,body.slice(0,200));
+    return json(env,{error:"Não foi possível atualizar o administrador."},500);
+  }
+  return json(env,{ok:true,membership:member,auditId});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -608,6 +688,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/appointments/status") {
       try {return await updateAppointmentStatus(request,env);}
       catch(error){console.error("Status change failure",error);return json(env,{error:"Falha ao alterar agendamento."},500);}
+    }
+    if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
+      try { return await manageTenantAdmin(request,env); }
+      catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
     }
     if (request.method === "POST" && url.pathname === "/api/admin/professionals") {
       try { return await createProfessional(request,env); }
