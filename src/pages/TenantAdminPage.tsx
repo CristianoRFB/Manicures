@@ -54,7 +54,7 @@ export function TenantAdminPage() {
   useEffect(() => {
     if (!tenant || !user || !authorized) return;
     Promise.all([
-      repository.listAppointments(tenant.id), repository.listServices(tenant.id), repository.listProfessionals(tenant.id),
+      repository.listAppointments(tenant.id), repository.listServices(tenant.id), repository.listProfessionals(tenant.id,{includeInactive:true}),
     ]).then(([a,s,p]) => { setAppointments(a); setServices(s); setProfessionals(p); });
 
     if (platformOwner && !auditLogged.current) {
@@ -69,7 +69,7 @@ export function TenantAdminPage() {
   async function refresh() {
     if (!tenant) return;
     const [a,s,p] = await Promise.all([repository.listAppointments(tenant.id),
-      repository.listServices(tenant.id),repository.listProfessionals(tenant.id)]);
+      repository.listServices(tenant.id),repository.listProfessionals(tenant.id,{includeInactive:true})]);
     setAppointments(a);setServices(s);setProfessionals(p);
   }
 
@@ -115,6 +115,23 @@ export function TenantAdminPage() {
     in_service:[{label:"Concluir",next:"completed"}],
   };
 
+  async function toggleProfessional(professionalId:string,active:boolean) {
+    if(!tenant || !user || working) return;
+    setWorking(true);setFeedback("");setOperationError("");
+    try {
+      const api=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!api)throw new Error("Booking Worker não configurado.");
+      const response=await fetch(`${api.replace(/\/$/,"")}/api/admin/professionals/activation`,{
+        method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:tenant.id,professionalId,active}),
+      });
+      const data=await response.json() as {error?:string};
+      if(!response.ok)throw new Error(data.error??"Falha na alteração de profissional.");
+      await refresh();setFeedback(active?"Profissional ativada.":"Profissional desativada.");
+    } catch(error){setOperationError(error instanceof Error?error.message:"Falha de rede.");}
+    finally{setWorking(false);}
+  }
+
   async function addService(event: React.FormEvent) {
     event.preventDefault();
     if (!tenant || working) return;
@@ -143,13 +160,13 @@ export function TenantAdminPage() {
       <div className="row between"><div><div className="badge">{platformOwner ? "PLATFORM OWNER" : membership?.role}</div><h1>{tenant.name}</h1></div><button className="button" onClick={() => void logout()}>Sair</button></div>
       <div className="stats">
         <div className="stat"><strong>{appointments.length}</strong><span>agendamentos</span></div>
-        <div className="stat"><strong>{professionals.length}</strong><span>profissionais</span></div>
+        <div className="stat"><strong>{professionals.filter(pro=>pro.active).length}</strong><span>profissionais ativas</span></div>
         <div className="stat"><strong>{services.length}</strong><span>serviços</span></div>
       </div>
       <div className="row">
         <p><strong>Plano:</strong> {tenant.commercial?.planId || "legado sem atribuição"}</p>
         <p><strong>Status:</strong> {tenant.commercial?.subscriptionStatus || "pendente"}</p>
-        <p><strong>Limite de profissionais:</strong> {professionals.length}/{getLimit(tenant,"professionals_active") ?? "sem teto"}</p>
+        <p><strong>Limite de profissionais:</strong> {professionals.filter(pro=>pro.active).length}/{getLimit(tenant,"professionals_active") ?? "sem teto"}</p>
       </div>
       <h2>Serviços</h2>
       <div className="grid cards">
@@ -169,7 +186,12 @@ export function TenantAdminPage() {
       </form>
       <h2>Profissionais</h2>
       <div className="grid cards">{professionals.map(pro=><article className="card" key={pro.id}>
-        <h3>{pro.name}</h3><p>{pro.serviceIds.length} serviço(s) associado(s)</p>
+        <h3>{pro.name}</h3>
+        <p>{pro.active?"Ativa":"Inativa"} — {pro.serviceIds.length} serviço(s) associado(s)</p>
+        <button className="button" type="button" disabled={working || !evaluate(tenant,"professionals.manage").allowed}
+          onClick={()=>void toggleProfessional(pro.id,!pro.active)}>
+          {pro.active?"Desativar":"Reativar"}
+        </button>
       </article>)}</div>
       <form className="form narrow" onSubmit={(event)=>void addProfessional(event)}>
         <h3>Cadastrar profissional</h3>
@@ -188,7 +210,11 @@ export function TenantAdminPage() {
       <h2>Agenda</h2>
       <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Horário</th><th>Status</th><th>Ações</th></tr></thead><tbody>
         {[...appointments].sort((a,b) => a.startsAt.localeCompare(b.startsAt)).map((a) => (
-          <tr key={a.id}><td>{a.customerName}</td><td>{services.find((s) => s.id === a.serviceId)?.name ?? a.serviceId}</td><td>{professionals.find((p) => p.id === a.professionalId)?.name ?? a.professionalId}</td><td>{a.startsAt.replace("T", " ").slice(0,16)}</td><td>{a.status}</td></tr>
+          <tr key={a.id}><td>{a.customerName}</td><td>{services.find((s) => s.id === a.serviceId)?.name ?? a.serviceId}</td><td>{professionals.find((p) => p.id === a.professionalId)?.name ?? a.professionalId}</td><td>{a.startsAt.replace("T", " ").slice(0,16)}</td><td>{a.status}</td>
+            <td className="row">{(actionByStatus[a.status]??[]).map(action=><button
+              type="button" className="button" key={action.next} disabled={working}
+              onClick={()=>void changeStatus(a.id,action.next)}>{action.label}</button>)}</td>
+          </tr>
         ))}
       </tbody></table></div>
     </section>
