@@ -76,6 +76,14 @@ describe("tenant isolation and RBAC", () => {
     await assertSucceeds(getDoc(doc(db, "tenants/b/appointments/b1")));
   });
 
+
+  it("membership e professional quota não podem ser manipuladas pelo cliente", async () => {
+    const db = env.authenticatedContext("platform").firestore();
+    await assertFails(setDoc(doc(db,"memberships/a_bad"),{userId:"bad",tenantId:"a",role:"tenant_owner",status:"active"}));
+    await assertFails(setDoc(doc(db,"tenants/a/professionals/p-extra"),{tenantId:"a",name:"Extra",active:true,serviceIds:[]}));
+    await assertFails(setDoc(doc(db,"tenants/a"),{status:"active",commercial:{planId:"premium",subscriptionStatus:"active"}},{merge:true}));
+  });
+
   it("cliente público não cria Appointment direto no Firestore", async () => {
     const db = env.unauthenticatedContext().firestore();
     await assertFails(setDoc(doc(db, "tenants/a/appointments/x"), { tenantId:"a", status:"pending" }));

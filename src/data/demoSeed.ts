@@ -13,6 +13,7 @@ export const demoTenant: Tenant = {
   name: "Studio Demo Nails A — DEMONSTRAÇÃO",
   status: "active",
   kind: "demo",
+  commercial: {planId:"premium_demo",subscriptionStatus:"demo"},
   branding: { primary: "#5b2b73", accent: "#d49adf", background: "#fff9ff", logoText: "DA" },
   contact: {},
   businessSettings: { timezone: "America/Sao_Paulo", bookingHorizonDays: 45, minLeadMinutes: 60 },

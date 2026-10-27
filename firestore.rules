@@ -30,17 +30,26 @@ service cloud.firestore {
     match /tenants/{tenantId} {
       allow get: if resource.data.status == "active" || activeMember(tenantId) || isPlatformOwner();
       allow list: if isPlatformOwner();
-      allow create, update: if isPlatformOwner();
-      allow delete: if false;
+      // Tenant lifecycle/commercial assignment requires trusted Worker + atomic audit.
+      allow create, update, delete: if false;
 
       match /services/{serviceId} {
         allow read: if tenantActive(tenantId) && resource.data.active == true || activeMember(tenantId) || isPlatformOwner();
-        allow write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner();
+        allow create: if (tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner())
+          && request.resource.data.tenantId == tenantId
+          && request.resource.data.priceCents is int && request.resource.data.priceCents >= 0
+          && request.resource.data.durationMin is int && request.resource.data.durationMin > 0;
+        allow update: if (tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner())
+          && request.resource.data.tenantId == tenantId
+          && request.resource.data.priceCents is int && request.resource.data.priceCents >= 0
+          && request.resource.data.durationMin is int && request.resource.data.durationMin > 0;
+        allow delete: if false;
       }
 
       match /professionals/{professionalId} {
         allow read: if tenantActive(tenantId) && resource.data.active == true || activeMember(tenantId) || isPlatformOwner();
-        allow write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner();
+        // Quota counting cannot be enforced by client Rules alone. All mutations use trusted Worker.
+        allow write: if false;
       }
 
       match /appointments/{appointmentId} {
@@ -48,9 +57,8 @@ service cloud.firestore {
         allow read: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"])
           || professionalOwnsAppointment(tenantId)
           || isPlatformOwner();
-        allow update: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"])
-          || professionalOwnsAppointment(tenantId)
-          || isPlatformOwner();
+        // Status changes must update bookingLocks consistently in a trusted layer.
+        allow update: if false;
         allow delete: if false;
       }
 
@@ -83,8 +91,8 @@ service cloud.firestore {
 
     match /memberships/{id} {
       allow read: if signedIn() && (resource.data.userId == request.auth.uid || isPlatformOwner());
-      allow create, update: if isPlatformOwner();
-      allow delete: if false;
+      // Membership changes require trusted counters + audit, not direct client writes.
+      allow create, update, delete: if false;
     }
 
     match /platformUsers/{uid} {

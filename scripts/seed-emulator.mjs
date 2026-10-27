@@ -20,7 +20,7 @@ const ownerA = await ensureUser('owner-a', 'owner-a@example.test', 'Demo123!Demo
 const ownerB = await ensureUser('owner-b', 'owner-b@example.test', 'Demo123!Demo123!', 'Owner B');
 
 const tenants = [
-  { id:'tenant-demo-a', slug:'demo', name:'Studio Demo Nails A — DEMONSTRAÇÃO', status:'active', kind:'demo', branding:{primary:'#5b2b73',accent:'#d49adf',background:'#fff9ff',logoText:'DA'}, contact:{}, businessSettings:{timezone:'America/Sao_Paulo',bookingHorizonDays:45,minLeadMinutes:60} },
+  { id:'tenant-demo-a', slug:'demo', name:'Studio Demo Nails A — DEMONSTRAÇÃO', status:'active', kind:'demo', commercial:{planId:'premium_demo',subscriptionStatus:'demo'}, branding:{primary:'#5b2b73',accent:'#d49adf',background:'#fff9ff',logoText:'DA'}, contact:{}, businessSettings:{timezone:'America/Sao_Paulo',bookingHorizonDays:45,minLeadMinutes:60} },
   { id:'tenant-demo-b', slug:'demo-b', name:'Ateliê Demo B — DEMONSTRAÇÃO', status:'active', kind:'demo', branding:{primary:'#24476b',accent:'#90c2e7',background:'#f6fbff',logoText:'DB'}, contact:{}, businessSettings:{timezone:'America/Sao_Paulo',bookingHorizonDays:30,minLeadMinutes:90} },
 ];
 for (const tenant of tenants) {
