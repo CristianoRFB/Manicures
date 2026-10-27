@@ -254,6 +254,27 @@ describe("Trusted commercial and professional writes",()=>{
     expect((await status("ownerA","completed")).status).toBe(409);
   });
 
+  it("override manual é persistido, auditado e revoga booking no Worker",async()=>{
+    const token=await signedToken("platform");
+    const response=await worker.fetch(new Request("http://worker.local/api/admin/plans/assign",{
+      method:"POST",
+      headers:{"content-type":"application/json",authorization:`Bearer ${token}`},
+      body:JSON.stringify({
+        tenantId:"a",planId:"pro",subscriptionStatus:"active",
+        reason:"Override temporário registrado pela plataforma",
+        entitlementOverrides:{"booking.create":false},
+        limitOverrides:{professionals_active:2,tenant_admins:1}
+      }),
+    }),env());
+    expect(response.status).toBe(200);
+    const stored=(await getFirestore(adminApp).doc("tenants/a").get()).data();
+    expect(stored?.commercial.entitlementOverrides["booking.create"]).toBe(false);
+    expect(stored?.commercial.limitOverrides.professionals_active).toBe(2);
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(403);
+    const logs=await getFirestore(adminApp).collection("tenants/a/auditLogs").get();
+    expect(logs.size).toBe(1);
+    expect(logs.docs[0].data().after.entitlementOverrides["booking.create"]).toBe(false);
+  });
   it("tenant owner não atribui plano nem falsifica operador",async()=>{
     const token=await signedToken("ownerA");
     const response=await worker.fetch(new Request("http://worker.local/api/admin/plans/assign",{
