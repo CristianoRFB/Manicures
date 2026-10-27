@@ -492,6 +492,7 @@ async function createProfessional(request: Request, env: Env): Promise<Response>
     },
     {
       update:{name:docName(env,counterPath),fields:fields({professionalsActive:existing+1,updatedAt:now})},
+      updateMask:{fieldPaths:["professionalsActive","updatedAt"]},
       currentDocument: counter?.updateTime ? {updateTime:counter.updateTime} : {exists:false},
     },
     {
