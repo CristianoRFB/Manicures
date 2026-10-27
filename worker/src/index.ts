@@ -514,6 +514,87 @@ async function createProfessional(request: Request, env: Env): Promise<Response>
   return json(env,{professional:{id:professionalId,tenantId,name,serviceIds,active:true},auditId},201);
 }
 
+const TRANSITIONS: Record<string, readonly string[]> = {
+  pending:["confirmed","cancelled"], confirmed:["in_service","cancelled","no_show"],
+  in_service:["completed"], completed:[], cancelled:[], no_show:[],
+};
+async function updateAppointmentStatus(request:Request,env:Env):Promise<Response> {
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string" ? data.tenantId:"";
+  const appointmentId=typeof data.appointmentId==="string" ? data.appointmentId:"";
+  const nextStatus=typeof data.status==="string" ? data.status:"";
+  if(![tenantId,appointmentId].every(x=>/^[A-Za-z0-9_-]{1,100}$/.test(x))||!Object.keys(TRANSITIONS).includes(nextStatus))
+    return json(env,{error:"Identificadores ou status inválidos."},400);
+  const bearer=request.headers.get("authorization") ?? "";
+  if(!bearer.startsWith("Bearer ")) return json(env,{error:"Autenticação necessária."},401);
+  let actorId:string;
+  try{actorId=await verifyFirebaseIdToken(bearer.slice(7),env);}
+  catch {return json(env,{error:"Sessão inválida."},401);}
+  const token=env.FIRESTORE_EMULATOR_HOST ? "" : await serviceAccessToken(env);
+  const [platform,membership,tenant,appointment]=await Promise.all([
+    getDocument(env,token,`platformUsers/${actorId}`),
+    getDocument(env,token,`memberships/${tenantId}_${actorId}`),
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`tenants/${tenantId}/appointments/${appointmentId}`),
+  ]);
+  if(!tenant || !appointment || str(appointment,"tenantId")!==tenantId || !appointment.updateTime)
+    return json(env,{error:"Agendamento não encontrado."},404);
+  const platformAllowed=platform && str(platform,"role")==="platform_owner" && str(platform,"status")==="active";
+  const role=membership && str(membership,"tenantId")===tenantId && str(membership,"userId")===actorId
+    && str(membership,"status")==="active" ? str(membership,"role"):"";
+  const allowed=platformAllowed || ["tenant_owner","tenant_admin"].includes(role)
+    || (role==="professional" && str(membership!,"professionalId")===str(appointment,"professionalId"));
+  if(!allowed) return json(env,{error:"Sem permissão para este atendimento."},403);
+  const current=str(appointment,"status");
+  if(!(TRANSITIONS[current] ?? []).includes(nextStatus))
+    return json(env,{error:`Transição inválida: ${current} → ${nextStatus}.`},409);
+
+  const writes:Array<Record<string,unknown>>=[];
+  const now=new Date().toISOString();
+  writes.push({
+    update:{
+      name:docName(env,`tenants/${tenantId}/appointments/${appointmentId}`),
+      fields:fields({status:nextStatus,updatedAt:now}),
+    },
+    updateMask:{fieldPaths:["status","updatedAt"]},
+    currentDocument:{updateTime:appointment.updateTime},
+  });
+  if(nextStatus==="cancelled"){
+    const {dateKey,startMinute}=localParts(str(appointment,"startsAt"));
+    const duration=int(appointment,"durationSnapshotMin");
+    if(!Number.isInteger(duration)||duration<=0)return json(env,{error:"Duração histórica inválida."},409);
+    const proId=str(appointment,"professionalId");
+    const locks=await Promise.all(lockMinutes(startMinute,startMinute+duration).map(minute=>
+      getDocument(env,token,`tenants/${tenantId}/bookingLocks/${proId}_${dateKey}_${minute}`)));
+    if(locks.some(lock=>!lock || str(lock,"appointmentId")!==appointmentId))
+      return json(env,{error:"Locks inconsistentes. Cancelamento requer revisão para evitar dupla agenda."},409);
+    for(let i=0;i<locks.length;i++) {
+      const minute=lockMinutes(startMinute,startMinute+duration)[i];
+      writes.push({delete:docName(env,`tenants/${tenantId}/bookingLocks/${proId}_${dateKey}_${minute}`),
+        currentDocument:{exists:true}});
+    }
+  }
+  const auditId=crypto.randomUUID();
+  writes.push({
+    update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId,actorRole:platformAllowed?"platform_owner":role,
+        action:"appointments.status_change",resourceType:"appointment",resourceId:appointmentId,
+        before:{status:current},after:{status:nextStatus},createdAt:now})},
+    currentDocument:{exists:false},
+  });
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||detail.includes("FAILED_PRECONDITION"))
+      return json(env,{error:"Agendamento alterado durante operação. Atualize a agenda."},409);
+    console.error("Status change commit error",response.status,detail.slice(0,200));
+    return json(env,{error:"Não foi possível alterar atendimento."},500);
+  }
+  return json(env,{ok:true,id:appointmentId,status:nextStatus,auditId});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -522,6 +603,10 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/availability") {
       try {return await lookupAvailability(request,env);}
       catch(error) {console.error("Availability failed",error);return json(env,{error:"Disponibilidade indisponível."},500);}
+    }
+    if (request.method === "POST" && url.pathname === "/api/admin/appointments/status") {
+      try {return await updateAppointmentStatus(request,env);}
+      catch(error){console.error("Status change failure",error);return json(env,{error:"Falha ao alterar agendamento."},500);}
     }
     if (request.method === "POST" && url.pathname === "/api/admin/professionals") {
       try { return await createProfessional(request,env); }
