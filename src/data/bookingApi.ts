@@ -28,3 +28,13 @@ export async function createProtectedBooking(input: CreateBookingInput): Promise
   if (!response.ok || !payload.appointment) throw new Error(payload.error ?? "Não foi possível confirmar o horário.");
   return payload.appointment;
 }
+
+export async function getProtectedAvailability(params:{tenantId:string;serviceId:string;professionalId:string;date:string}):Promise<string[]> {
+  const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+  if(!base)throw new Error("Booking API não configurada.");
+  const query=new URLSearchParams(params);
+  const response=await fetch(`${base.replace(/\/$/,"")}/api/availability?${query.toString()}`);
+  const data=await response.json().catch(()=>({})) as {error?:string;slots?:string[]};
+  if(!response.ok) throw new Error(data.error ?? "Não foi possível obter horários disponíveis.");
+  return data.slots ?? [];
+}

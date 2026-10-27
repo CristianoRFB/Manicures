@@ -18,7 +18,7 @@ const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
 function cors(env: Env) {
   return {
     "access-control-allow-origin": env.ALLOWED_ORIGIN ?? "*",
-    "access-control-allow-methods": "POST,OPTIONS",
+    "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers": "content-type,authorization",
   };
 }
@@ -194,6 +194,83 @@ function lockMinutes(startMinute: number, endMinute: number): number[] {
   return out;
 }
 
+function settings(doc:FireDoc) {
+  const fields=asRecord(doc.fields?.businessSettings);
+  return {
+    timezone:fields.timezone?.stringValue || "America/Sao_Paulo",
+    bookingHorizonDays:Number(fields.bookingHorizonDays?.integerValue ?? 45),
+    minLeadMinutes:Number(fields.minLeadMinutes?.integerValue ?? 60),
+  };
+}
+function zonedNowString(zone:string):string {
+  const fmt=new Intl.DateTimeFormat("en-US",{
+    timeZone:zone,year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23",
+  });
+  const values=Object.fromEntries(fmt.formatToParts(new Date()).map(x=>[x.type,x.value]));
+  return `${values.year}-${values.month}-${values.day}T${values.hour}:${values.minute}:00`;
+}
+function validDate(date:string):boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(`${date}T12:00:00Z`))
+    && new Date(`${date}T12:00:00Z`).toISOString().slice(0,10)===date;
+}
+function validWindow(tenant:FireDoc,start:string) {
+  const {timezone,bookingHorizonDays,minLeadMinutes}=settings(tenant);
+  const nowLocal=zonedNowString(timezone);
+  const startMs=Date.parse(`${start}Z`),nowMs=Date.parse(`${nowLocal}Z`);
+  const gapMinutes=(startMs-nowMs)/60000;
+  return Number.isFinite(gapMinutes) && gapMinutes >= minLeadMinutes
+    && gapMinutes <= bookingHorizonDays*1440;
+}
+async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDoc,service:FireDoc,professional:FireDoc,date:string) {
+  if(!validDate(date)) return [] as string[];
+  if (!evaluate(asTenant(tenant,tenantId),"booking.create").allowed || !bool(service,"active")
+      || !bool(professional,"active")) return [] as string[];
+  const duration=int(service,"durationMin");
+  if (!Number.isSafeInteger(duration)||duration<=0||duration>480) return [] as string[];
+  const proId=professional.name.split("/").pop() ?? "";
+  const ids=arr(professional,"serviceIds");
+  const serviceId=service.name.split("/").pop() ?? "";
+  if(!ids.includes(serviceId)) return [] as string[];
+  const [locks,blocks]=await Promise.all([
+    listDocuments(env,token,`tenants/${tenantId}/bookingLocks`),
+    listDocuments(env,token,`tenants/${tenantId}/scheduleBlocks`),
+  ]);
+  const busy=new Set(locks.filter(lock=>str(lock,"professionalId")===proId && str(lock,"dateKey")===date).map(lock=>int(lock,"minute")));
+  const intervals=blocks.filter(block=>str(block,"professionalId")===proId && str(block,"active")!=="false").map(block=>({
+    start:str(block,"startsAt"),end:str(block,"endsAt"),
+  })).filter(block=>block.start && block.end);
+  const result:string[]=[];
+  for(let minutes=9*60;minutes+duration<=18*60;minutes+=30) {
+    if(minutes<13*60 && minutes+duration>12*60) continue;
+    const start=`${date}T${String(Math.floor(minutes/60)).padStart(2,"0")}:${String(minutes%60).padStart(2,"0")}:00`;
+    if(!validWindow(tenant,start))continue;
+    const end=addMinutes(start,duration);
+    const occupied=lockMinutes(minutes,minutes+duration).some(minute=>busy.has(minute));
+    const blocked=intervals.some(block=>start<block.end && end>block.start);
+    if(!occupied && !blocked)result.push(start);
+  }
+  return result;
+}
+async function lookupAvailability(request:Request,env:Env):Promise<Response> {
+  const u=new URL(request.url);
+  const tenantId=u.searchParams.get("tenantId") ?? "";
+  const serviceId=u.searchParams.get("serviceId") ?? "";
+  const professionalId=u.searchParams.get("professionalId") ?? "";
+  const date=u.searchParams.get("date") ?? "";
+  if(![tenantId,serviceId,professionalId].every(x=>/^[A-Za-z0-9_-]{1,100}$/.test(x))||!validDate(date))
+    return json(env,{error:"Parâmetros inválidos."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST ? "" : await serviceAccessToken(env);
+  const [tenant,service,professional]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`tenants/${tenantId}/services/${serviceId}`),
+    getDocument(env,token,`tenants/${tenantId}/professionals/${professionalId}`),
+  ]);
+  if(!tenant || str(tenant,"status")!=="active")return json(env,{error:"Tenant indisponível."},404);
+  if(!service || !professional) return json(env,{error:"Serviço ou profissional indisponível."},404);
+  const slots=await availableSlots(env,token,tenantId,tenant,service,professional,date);
+  return json(env,{slots,date,timezone:settings(tenant).timezone});
+}
+
 async function createBooking(request: Request, env: Env): Promise<Response> {
   const body = await request.json() as Record<string, unknown>;
   const tenantId = String(body.tenantId ?? "");
@@ -222,7 +299,12 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
   const price = int(service, "priceCents");
   if (!Number.isInteger(duration) || duration <= 0 || !Number.isInteger(price) || price < 0) return json(env, { error: "Configuração de serviço inválida." }, 500);
 
-  const { dateKey, startMinute } = localParts(startsAt);
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId) || !/^[A-Za-z0-9_-]{1,100}$/.test(serviceId)
+      || !/^[A-Za-z0-9_-]{1,100}$/.test(professionalId))
+    return json(env,{error:"Identificadores inválidos."},400);
+  const {dateKey, startMinute}=localParts(startsAt);
+  const slots=await availableSlots(env,token,tenantId,tenant,service,professional,dateKey);
+  if(!slots.includes(startsAt)) return json(env,{error:"Horário indisponível. Atualize os horários."},409);
   const endMinute = startMinute + duration;
   if (startMinute < 9 * 60 || endMinute > 18 * 60 || (startMinute < 13 * 60 && endMinute > 12 * 60)) return json(env, { error: "Horário fora da disponibilidade operacional." }, 409);
 
@@ -437,6 +519,10 @@ export default {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
     if (request.method === "GET" && url.pathname === "/health") return json(env, { ok: true, service: "saas-manicure-booking-api" });
+    if (request.method === "GET" && url.pathname === "/api/availability") {
+      try {return await lookupAvailability(request,env);}
+      catch(error) {console.error("Availability failed",error);return json(env,{error:"Disponibilidade indisponível."},500);}
+    }
     if (request.method === "POST" && url.pathname === "/api/admin/professionals") {
       try { return await createProfessional(request,env); }
       catch(error) {console.error("Professional create failed",error);return json(env,{error:"Falha ao cadastrar profissional."},500);}

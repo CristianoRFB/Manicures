@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { repository } from "../data/repository";
-import { createProtectedBooking } from "../data/bookingApi";
+import { createProtectedBooking, getProtectedAvailability } from "../data/bookingApi";
 import type { Appointment, Professional, Service, Tenant } from "../domain/types";
 import { createSlots } from "../domain/availability";
 import { resolveTenant } from "../lib/tenantResolver";
@@ -24,6 +24,9 @@ export function BookingPage() {
   const [professionalId, setProfessionalId] = useState("");
   const [date, setDate] = useState(tomorrow());
   const [slot, setSlot] = useState("");
+  const [available, setAvailable] = useState<string[]>([]);
+  const [slotsLoading, setSlotsLoading] = useState(false);
+  const [slotsError, setSlotsError] = useState("");
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
@@ -57,10 +60,23 @@ export function BookingPage() {
     if (professional && professional.id !== professionalId) setProfessionalId(professional.id);
   }, [professional, professionalId]);
 
-  const slots = useMemo(() => {
+  const localSlots=useMemo(() => {
     if (!service || !professional) return [];
-    return createSlots(date, service, professional, appointments);
-  }, [date, service, professional, appointments]);
+    return createSlots(date,service,professional,appointments);
+  },[date,service,professional,appointments]);
+  useEffect(() => {
+    if (!tenant || !service || !professional || !date) {
+      setAvailable([]);return;
+    }
+    if (demoModeEnabled()) {setAvailable(localSlots);setSlotsLoading(false);setSlotsError("");return;}
+    let alive=true;
+    setSlotsLoading(true);setSlotsError("");setAvailable([]);
+    getProtectedAvailability({tenantId:tenant.id,serviceId:service.id,professionalId:professional.id,date})
+      .then(slots=>{if(alive)setAvailable(slots);})
+      .catch(err=>{if(alive)setSlotsError(err instanceof Error ? err.message : "Falha ao buscar horários.");})
+      .finally(()=>{if(alive)setSlotsLoading(false);});
+    return ()=>{alive=false;};
+  },[tenant,service,professional,date,localSlots]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -97,8 +113,12 @@ export function BookingPage() {
             {eligibleProfessionals.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select></label>
           <label>Data<input type="date" value={date} onChange={(e) => { setDate(e.target.value); setSlot(""); }} /></label>
-          <fieldset><legend>Horário</legend><div className="slot-grid">
-            {slots.map((item) => <button type="button" key={item} className={slot === item ? "slot selected" : "slot"} onClick={() => setSlot(item)}>{item.split("T")[1].slice(0,5)}</button>)}
+          <fieldset><legend>Horário</legend>
+            {slotsLoading && <p role="status">Verificando disponibilidade…</p>}
+            {slotsError && <p role="alert">{slotsError}</p>}
+            {!slotsLoading && !slotsError && available.length===0 && <p>Nenhum horário livre nessa data.</p>}
+            <div className="slot-grid">
+            {available.map((item) => <button type="button" key={item} className={slot === item ? "slot selected" : "slot"} onClick={() => setSlot(item)}>{item.split("T")[1].slice(0,5)}</button>)}
           </div></fieldset>
           <label>Nome<input value={name} onChange={(e) => setName(e.target.value)} /></label>
           <label>Telefone<input value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
