@@ -1,29 +1,36 @@
 # PROJECT_STRUCTURE
 
-## Estado baseline pré-Codex
-
-Estrutura relevante atual:
-
+## Runtime
 ```text
 src/
   app/
-  auth/
+  auth/AuthProvider.tsx
   components/
   data/
+    bookingApi.ts
+    demoSeed.ts
+    firestoreRepository.ts
+    repository.ts
   domain/
-  lib/
+  lib/firebase.ts
   pages/
-  styles/
-
-docs/
+  test/firestore.rules.test.ts
+worker/
+  src/index.ts
+  wrangler.toml
+scripts/
+  seed-emulator.mjs
+  docs-*.mjs
 firestore.rules
 storage.rules
 firebase.json
-firestore.indexes.json
+.github/workflows/ci.yml
 ```
 
-A aplicação é React + Vite + TypeScript e atualmente possui adapters/shells DEMO para evolução CORE_FIRST.
-
-Após a implementação principal, atualizar este documento com a estrutura **real final**, entrypoints, boundaries de domínio, adapters Firebase, scripts, rotas e testes.
-
-Não documentar caminhos imaginários.
+## Boundaries
+- `src/data/firestoreRepository.ts`: leitura privada/pública compatível com Rules.
+- `worker/src/index.ts`: criação confiável de Appointment e bookingLocks.
+- `src/auth/AuthProvider.tsx`: identidade Firebase Auth.
+- `firestore.rules` / `storage.rules`: enforcement tenant-aware.
+- `scripts/seed-emulator.mjs`: somente DEMO/local emulator.
+- `docs/`: documentação técnica/visual; não é runtime.

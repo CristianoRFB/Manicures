@@ -1,15 +1,10 @@
 # SaaS Manicure — v01-codex-ready-core-first
 
-Status: **CORE_FIRST / CODEX-READY BASE**.
+Versão canônica do CORE_FIRST.
 
-Esta versão documenta a base pré-Codex e deve ser atualizada **no final da implementação principal**.
+Esta versão documenta a branch que substitui shells privados fake por Firebase Auth, FirestoreRepository, memberships/RBAC, Platform Owner, Tenant A/B, Rules tenant-aware e Booking Worker confiável.
 
-Regra visual oficial: `docs/ecosystem/SAAS_PADRAO_DOCS_LEADS_IMAGENS_GERADAS.md`.
-
-Três categorias nunca podem ser misturadas:
-
-1. **SCREENSHOT REAL** — prova do sistema implementado.
-2. **DIAGRAMA** — representação técnica do sistema real.
-3. **IMAGEM GERADA** — conceito/visão/proposta, nunca prova de implementação.
-
-A fase documental final deve acontecer somente após CORE → migração → testes → Tenant A × B → build.
+Categorias visuais separadas:
+1. screenshot real = prova de UI executada;
+2. diagrama = arquitetura técnica real;
+3. generated visual = conceito/visão, nunca prova.
