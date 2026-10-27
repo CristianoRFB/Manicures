@@ -89,6 +89,35 @@ describe("tenant isolation and RBAC", () => {
     await assertFails(setDoc(doc(db, "tenants/a/appointments/x"), { tenantId:"a", status:"pending" }));
   });
 
+  it("assinatura suspensa bloqueia novos serviços, preserva leitura", async () => {
+    await env.withSecurityRulesDisabled(async ctx => {
+      await setDoc(doc(ctx.firestore(),"tenants/a"),{commercial:{planId:"pro",subscriptionStatus:"suspended"}},{merge:true});
+    });
+    const db = env.authenticatedContext("ownerA").firestore();
+    await assertSucceeds(getDoc(doc(db,"tenants/a/services/s1")));
+    await assertFails(setDoc(doc(db,"tenants/a/services/s2"),{tenantId:"a",name:"Novo",priceCents:3000,durationMin:60,active:true}));
+  });
+
+  it("trial vencido bloqueia escrita, trial futuro permite", async () => {
+    const db = env.authenticatedContext("ownerA").firestore();
+    await env.withSecurityRulesDisabled(async ctx => {
+      await setDoc(doc(ctx.firestore(),"tenants/a"),{commercial:{planId:"pro",subscriptionStatus:"trial",trialUntil:"2020-01-01T00:00:00Z"}},{merge:true});
+    });
+    await assertFails(setDoc(doc(db,"tenants/a/services/s3"),{tenantId:"a",name:"Novo",priceCents:3000,durationMin:60,active:true}));
+    await env.withSecurityRulesDisabled(async ctx => {
+      await setDoc(doc(ctx.firestore(),"tenants/a"),{commercial:{planId:"pro",subscriptionStatus:"trial",trialUntil:"2090-01-01T00:00:00Z"}},{merge:true});
+    });
+    await assertSucceeds(setDoc(doc(db,"tenants/a/services/s3"),{tenantId:"a",name:"Novo",priceCents:3000,durationMin:60,active:true}));
+  });
+
+  it("override comercial para services.manage nega escrita no backend", async () => {
+    await env.withSecurityRulesDisabled(async ctx => {
+      await setDoc(doc(ctx.firestore(),"tenants/a"),{commercial:{planId:"pro",subscriptionStatus:"active",entitlementOverrides:{"services.manage":false}}},{merge:true});
+    });
+    const db=env.authenticatedContext("ownerA").firestore();
+    await assertFails(setDoc(doc(db,"tenants/a/services/s4"),{tenantId:"a",name:"Bloqueado",priceCents:2000,durationMin:60,active:true}));
+  });
+
   it("tenant suspenso bloqueia público e membership do tenant", async () => {
     await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "tenants/a"), { slug:"a", name:"A", status:"suspended", kind:"demo" }));
     const publicDb = env.unauthenticatedContext().firestore();

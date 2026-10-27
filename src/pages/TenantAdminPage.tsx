@@ -4,7 +4,7 @@ import { repository } from "../data/repository";
 import type { Appointment, Membership, Professional, Service, Tenant } from "../domain/types";
 import { resolveTenant } from "../lib/tenantResolver";
 import { useAuth } from "../auth/AuthProvider";
-import { getLimit } from "../commercial/entitlements";
+import { getLimit, evaluate } from "../commercial/entitlements";
 import { LoginPanel } from "../components/LoginPanel";
 
 const ADMIN_ROLES = new Set(["tenant_owner", "tenant_admin"]);
@@ -142,7 +142,7 @@ export function TenantAdminPage() {
         <label>Descrição<input value={newServiceDescription} maxLength={400} onChange={e=>setNewServiceDescription(e.target.value)} /></label>
         <label>Preço em reais<input value={newServicePrice} inputMode="decimal" placeholder="49,90" required onChange={e=>setNewServicePrice(e.target.value)} /></label>
         <label>Duração (minutos)<input type="number" min={15} max={480} step={15} value={newServiceMinutes} required onChange={e=>setNewServiceMinutes(e.target.value)} /></label>
-        <button className="button primary" disabled={working} type="submit">{working?"Salvando…":"Adicionar serviço"}</button>
+        <button className="button primary" disabled={working || !evaluate(tenant,"services.manage").allowed} type="submit">{working?"Salvando…":"Adicionar serviço"}</button>
       </form>
       <h2>Profissionais</h2>
       <div className="grid cards">{professionals.map(pro=><article className="card" key={pro.id}>
@@ -157,8 +157,9 @@ export function TenantAdminPage() {
             {service.name}
           </label>)}
         </fieldset>
-        <button className="button primary" type="submit" disabled={working}>{working?"Salvando…":"Adicionar profissional"}</button>
+        <button className="button primary" type="submit" disabled={working || !evaluate(tenant,"professionals.manage").allowed}>{working?"Salvando…":"Adicionar profissional"}</button>
       </form>
+      {!evaluate(tenant,"services.manage").allowed && <p>Cadastro bloqueado pelo estado comercial ou configuração deste tenant.</p>}
       {feedback && <p role="status">{feedback}</p>}
       {operationError && <p role="alert">{operationError}</p>}
       <h2>Agenda</h2>

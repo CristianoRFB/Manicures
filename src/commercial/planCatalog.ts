@@ -31,7 +31,7 @@ const PREMIUM: readonly FeatureKey[] = [...PRO, "packages", "commissions", "cash
  * Commercial catalog != implementation status.
  */
 export const IMPLEMENTED_FEATURES: ReadonlySet<FeatureKey> = new Set([
-  "booking.create", "booking.public", "services.read", "branding.basic", "dashboard.read",
+  "booking.create", "booking.public", "services.read", "branding.basic", "dashboard.read", "services.manage", "professionals.manage",
 ]);
 
 export const PLAN_CATALOG: Readonly<Record<PlanId, PlanDefinition>> = {

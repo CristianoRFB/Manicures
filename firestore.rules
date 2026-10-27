@@ -17,6 +17,21 @@ service cloud.firestore {
       return exists(/databases/$(database)/documents/tenants/$(tenantId))
         && get(/databases/$(database)/documents/tenants/$(tenantId)).data.status == "active";
     }
+    function commercialWriteAllowed(tenantId, feature) {
+      let tenant = get(/databases/$(database)/documents/tenants/$(tenantId)).data;
+      let legacy = !("commercial" in tenant);
+      return tenant.status == "active" && (legacy ||
+        (
+          (
+            tenant.commercial.subscriptionStatus == "active" ||
+            (tenant.commercial.subscriptionStatus == "demo" && tenant.kind == "demo" && tenant.commercial.planId == "premium_demo") ||
+            (tenant.commercial.subscriptionStatus == "trial" && request.time < timestamp(tenant.commercial.trialUntil))
+          )
+          && (!("entitlementOverrides" in tenant.commercial)
+            || !(feature in tenant.commercial.entitlementOverrides)
+            || tenant.commercial.entitlementOverrides[feature] == true)
+        ));
+    }
     function professionalOwnsAppointment(tenantId) {
       return tenantRole(tenantId, ["professional"])
         && membership(tenantId).data.professionalId == resource.data.professionalId;
@@ -36,10 +51,12 @@ service cloud.firestore {
       match /services/{serviceId} {
         allow read: if tenantActive(tenantId) && resource.data.active == true || activeMember(tenantId) || isPlatformOwner();
         allow create: if (tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner())
+          && commercialWriteAllowed(tenantId, "services.manage")
           && request.resource.data.tenantId == tenantId
           && request.resource.data.priceCents is int && request.resource.data.priceCents >= 0
           && request.resource.data.durationMin is int && request.resource.data.durationMin > 0;
         allow update: if (tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner())
+          && commercialWriteAllowed(tenantId, "services.manage")
           && request.resource.data.tenantId == tenantId
           && request.resource.data.priceCents is int && request.resource.data.priceCents >= 0
           && request.resource.data.durationMin is int && request.resource.data.durationMin > 0;
@@ -84,6 +101,7 @@ service cloud.firestore {
         allow create: if isPlatformOwner()
           && request.resource.data.actorId == request.auth.uid
           && request.resource.data.actorRole == "platform_owner"
+          && request.resource.data.action == "platform.view_tenant"
           && request.resource.data.tenantId == tenantId;
         allow update, delete: if false;
       }
