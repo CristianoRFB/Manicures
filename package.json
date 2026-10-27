@@ -12,7 +12,12 @@
     "lint": "tsc -b --pretty false",
     "docs:check": "node scripts/docs-check.mjs",
     "docs:diagrams": "node scripts/docs-diagrams.mjs",
-    "docs:leads": "node scripts/docs-leads.mjs"
+    "docs:leads": "node scripts/docs-leads.mjs",
+    "test:rules": "firebase emulators:exec --only firestore \"vitest run src/test/firestore.rules.test.ts\"",
+    "emulators": "firebase emulators:start --only auth,firestore,storage",
+    "emulators:seed": "node scripts/seed-emulator.mjs",
+    "worker:check": "tsc -p worker/tsconfig.json --pretty false",
+    "check": "npm run typecheck && npm test && npm run worker:check && npm run docs:check"
   },
   "dependencies": {
     "firebase": "11.0.2",
@@ -26,6 +31,10 @@
     "@vitejs/plugin-react": "4.3.3",
     "typescript": "5.6.3",
     "vite": "5.4.10",
-    "vitest": "2.1.4"
+    "vitest": "2.1.4",
+    "@firebase/rules-unit-testing": "4.0.1",
+    "firebase-admin": "13.0.2",
+    "firebase-tools": "13.29.2",
+    "wrangler": "3.99.0"
   }
 }

@@ -1,56 +1,63 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    function signedIn() {
-      return request.auth != null;
-    }
-
-    function membershipId(tenantId) {
-      return tenantId + "_" + request.auth.uid;
-    }
-
-    function membership(tenantId) {
-      return get(/databases/$(database)/documents/memberships/$(membershipId(tenantId)));
-    }
-
-    function activeMember(tenantId) {
-      return signedIn()
-        && membership(tenantId).data.status == "active";
-    }
-
-    function tenantRole(tenantId, roles) {
-      return activeMember(tenantId)
-        && membership(tenantId).data.role in roles;
-    }
-
+    function signedIn() { return request.auth != null; }
+    function membershipId(tenantId) { return tenantId + "_" + request.auth.uid; }
+    function membershipExists(tenantId) { return signedIn() && exists(/databases/$(database)/documents/memberships/$(membershipId(tenantId))); }
+    function membership(tenantId) { return get(/databases/$(database)/documents/memberships/$(membershipId(tenantId))); }
+    function activeMember(tenantId) { return membershipExists(tenantId) && membership(tenantId).data.status == "active"; }
+    function tenantRole(tenantId, roles) { return activeMember(tenantId) && membership(tenantId).data.role in roles; }
     function isPlatformOwner() {
       return signedIn()
         && exists(/databases/$(database)/documents/platformUsers/$(request.auth.uid))
-        && get(/databases/$(database)/documents/platformUsers/$(request.auth.uid)).data.role == "platform_owner";
+        && get(/databases/$(database)/documents/platformUsers/$(request.auth.uid)).data.role == "platform_owner"
+        && get(/databases/$(database)/documents/platformUsers/$(request.auth.uid)).data.status == "active";
+    }
+    function tenantActive(tenantId) {
+      return exists(/databases/$(database)/documents/tenants/$(tenantId))
+        && get(/databases/$(database)/documents/tenants/$(tenantId)).data.status == "active";
+    }
+    function professionalOwnsAppointment(tenantId) {
+      return tenantRole(tenantId, ["professional"])
+        && membership(tenantId).data.professionalId == resource.data.professionalId;
+    }
+
+    match /tenantSlugs/{slug} {
+      allow read: if resource.data.status == "active" || isPlatformOwner();
+      allow write: if isPlatformOwner();
     }
 
     match /tenants/{tenantId} {
-      allow read: if resource.data.status == "active" || activeMember(tenantId) || isPlatformOwner();
+      allow get: if resource.data.status == "active" || activeMember(tenantId) || isPlatformOwner();
+      allow list: if isPlatformOwner();
       allow create, update: if isPlatformOwner();
       allow delete: if false;
 
       match /services/{serviceId} {
-        allow read: if resource.data.active == true || activeMember(tenantId) || isPlatformOwner();
+        allow read: if tenantActive(tenantId) && resource.data.active == true || activeMember(tenantId) || isPlatformOwner();
         allow write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner();
       }
 
       match /professionals/{professionalId} {
-        allow read: if resource.data.active == true || activeMember(tenantId) || isPlatformOwner();
+        allow read: if tenantActive(tenantId) && resource.data.active == true || activeMember(tenantId) || isPlatformOwner();
         allow write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner();
       }
 
       match /appointments/{appointmentId} {
-        allow create: if request.resource.data.tenantId == tenantId
-          && request.resource.data.status == "pending"
-          && request.resource.data.priceSnapshotCents is int
-          && request.resource.data.durationSnapshotMin is int;
-        allow read, update: if activeMember(tenantId) || isPlatformOwner();
+        // Criação pública é feita somente pelo Booking Worker usando credencial de servidor.
+        allow create: if false;
+        allow read: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"])
+          || professionalOwnsAppointment(tenantId)
+          || isPlatformOwner();
+        allow update: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"])
+          || professionalOwnsAppointment(tenantId)
+          || isPlatformOwner();
         allow delete: if false;
+      }
+
+      match /bookingLocks/{lockId} {
+        allow read: if tenantRole(tenantId, ["tenant_owner", "tenant_admin", "professional"]) || isPlatformOwner();
+        allow write: if false;
       }
 
       match /customers/{customerId} {
@@ -58,17 +65,31 @@ service cloud.firestore {
       }
 
       match /scheduleBlocks/{blockId} {
-        allow read, write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin", "professional"]) || isPlatformOwner();
+        allow read: if activeMember(tenantId) || isPlatformOwner();
+        allow create, update: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"])
+          || (tenantRole(tenantId, ["professional"]) && membership(tenantId).data.professionalId == request.resource.data.professionalId)
+          || isPlatformOwner();
+        allow delete: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner();
+      }
+
+      match /auditLogs/{logId} {
+        allow read: if tenantRole(tenantId, ["tenant_owner"]) || isPlatformOwner();
+        allow create: if isPlatformOwner()
+          && request.resource.data.actorId == request.auth.uid
+          && request.resource.data.actorRole == "platform_owner"
+          && request.resource.data.tenantId == tenantId;
+        allow update, delete: if false;
       }
     }
 
     match /memberships/{id} {
       allow read: if signedIn() && (resource.data.userId == request.auth.uid || isPlatformOwner());
-      allow write: if isPlatformOwner();
+      allow create, update: if isPlatformOwner();
+      allow delete: if false;
     }
 
     match /platformUsers/{uid} {
-      allow read: if signedIn() && uid == request.auth.uid;
+      allow read: if signedIn() && uid == request.auth.uid || isPlatformOwner();
       allow write: if false;
     }
   }

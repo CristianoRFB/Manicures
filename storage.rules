@@ -1,14 +1,29 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
+    function signedIn() { return request.auth != null; }
+    function membershipId(tenantId) { return tenantId + "_" + request.auth.uid; }
+    function member(tenantId) {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/memberships/$(membershipId(tenantId)))
+        && firestore.get(/databases/(default)/documents/memberships/$(membershipId(tenantId))).data.status == "active";
+    }
+    function role(tenantId) { return firestore.get(/databases/(default)/documents/memberships/$(membershipId(tenantId))).data.role; }
+    function platformOwner() {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/platformUsers/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/platformUsers/$(request.auth.uid)).data.role == "platform_owner"
+        && firestore.get(/databases/(default)/documents/platformUsers/$(request.auth.uid)).data.status == "active";
+    }
+
     match /tenants/{tenantId}/public/{allPaths=**} {
       allow read: if true;
-      allow write: if false;
+      allow write: if platformOwner() || (member(tenantId) && role(tenantId) in ["tenant_owner", "tenant_admin"]);
     }
 
     match /tenants/{tenantId}/private/{allPaths=**} {
-      // Fechado por padrão até memberships/RBAC serem ligados e testados no próximo GOAL.
-      allow read, write: if false;
+      allow read: if platformOwner() || member(tenantId);
+      allow write: if platformOwner() || (member(tenantId) && role(tenantId) in ["tenant_owner", "tenant_admin"]);
     }
   }
 }
