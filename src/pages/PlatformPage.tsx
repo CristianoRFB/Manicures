@@ -4,7 +4,7 @@ import { repository } from "../data/repository";
 import type { Tenant } from "../domain/types";
 import { useAuth } from "../auth/AuthProvider";
 import { LoginPanel } from "../components/LoginPanel";
-import { PLAN_CATALOG, PLAN_ORDER, type PlanId } from "../commercial/planCatalog";
+import { IMPLEMENTED_FEATURES, PLAN_CATALOG, PLAN_ORDER, type FeatureKey, type PlanId } from "../commercial/planCatalog";
 
 interface Assignment { planId: PlanId | "premium_demo"; status: "active" | "trial" | "past_due" | "suspended" | "cancelled" | "demo"; reason: string; }
 const initial: Assignment = { planId:"essencial", status:"active", reason:"" };
@@ -19,6 +19,10 @@ export function PlatformPage() {
   const [selectedId, setSelectedId] = useState("");
   const [form, setForm] = useState<Assignment>(initial);
   const [saving, setSaving] = useState(false);
+  const [overrideFeature, setOverrideFeature] = useState<FeatureKey>("booking.create");
+  const [overrideMode, setOverrideMode] = useState<"inherit"|"allow"|"deny">("inherit");
+  const [professionalCap, setProfessionalCap] = useState("");
+  const [adminCap, setAdminCap] = useState("");
   const [adminUid, setAdminUid] = useState("");
   const [adminStatus, setAdminStatus] = useState<"active" | "disabled">("active");
   const [adminSaving, setAdminSaving] = useState(false);
@@ -48,6 +52,9 @@ export function PlatformPage() {
       status:current?.subscriptionStatus || "active",
       reason:"",
     });
+    setProfessionalCap(current?.limitOverrides?.professionals_active?.toString() ?? "");
+    setAdminCap(current?.limitOverrides?.tenant_admins?.toString() ?? "");
+    setOverrideMode("inherit");
   }, [selected]);
 
   async function assignPlan(event: React.FormEvent) {
@@ -58,10 +65,24 @@ export function PlatformPage() {
       const api = import.meta.env.VITE_BOOKING_API_BASE_URL;
       if (!api) throw new Error("Worker não configurado: VITE_BOOKING_API_BASE_URL.");
       const token = await user.getIdToken();
+      const entitlements = {...(selected.commercial?.entitlementOverrides ?? {})};
+      delete entitlements[overrideFeature];
+      if(overrideMode!=="inherit") entitlements[overrideFeature] = overrideMode==="allow";
+      const limits = {...(selected.commercial?.limitOverrides ?? {})};
+      const parseOverride=(value:string,key:"professionals_active"|"tenant_admins")=>{
+        if(!value.trim()) {delete limits[key]; return;}
+        if(!/^\\d{1,4}$/.test(value.trim())) throw new Error("Limite inválido: use inteiro de 0 a 9999.");
+        limits[key] = Number(value.trim());
+      };
+      parseOverride(professionalCap,"professionals_active");
+      parseOverride(adminCap,"tenant_admins");
       const response = await fetch(`${api.replace(/\/$/,"")}/api/admin/plans/assign`,{
         method:"POST",
         headers:{"content-type":"application/json",authorization:`Bearer ${token}`},
-        body:JSON.stringify({tenantId:selected.id,planId:form.planId,subscriptionStatus:form.status,reason:form.reason.trim()}),
+        body:JSON.stringify({
+          tenantId:selected.id,planId:form.planId,subscriptionStatus:form.status,
+          reason:form.reason.trim(),entitlementOverrides:entitlements,limitOverrides:limits,
+        }),
       });
       const data = await response.json() as {error?:string};
       if (!response.ok) throw new Error(data.error || "Falha ao atribuir plano.");
@@ -135,6 +156,30 @@ export function PlatformPage() {
         <label>Justificativa (mínimo 10 caracteres)
           <input value={form.reason} minLength={10} maxLength={600} required onChange={(e)=>setForm(f=>({...f,reason:e.target.value}))} />
         </label>
+        <fieldset>
+          <legend>Overrides manuais (apenas funções implementadas)</legend>
+          <label>Funcionalidade
+            <select value={overrideFeature} onChange={(e)=>{setOverrideFeature(e.target.value as FeatureKey);setOverrideMode("inherit");}}>
+              {[...IMPLEMENTED_FEATURES].sort().map(key=><option key={key} value={key}>{key}</option>)}
+            </select>
+          </label>
+          <label>Permissão excepcional
+            <select value={overrideMode} onChange={(e)=>setOverrideMode(e.target.value as "inherit"|"allow"|"deny")}>
+              <option value="inherit">Usar definição do plano</option>
+              <option value="allow">Liberar explicitamente</option>
+              <option value="deny">Bloquear explicitamente</option>
+            </select>
+          </label>
+          <p>Fundamentos de segurança e integridade nunca são diferenciados por plano.</p>
+          <label>Limite excepcional de profissionais (vazio = plano)
+            <input inputMode="numeric" pattern="\\d{1,4}" value={professionalCap}
+              placeholder="Herdar" onChange={(e)=>setProfessionalCap(e.target.value)} />
+          </label>
+          <label>Limite excepcional de administradores (vazio = plano)
+            <input inputMode="numeric" pattern="\\d{1,4}" value={adminCap}
+              placeholder="Herdar" onChange={(e)=>setAdminCap(e.target.value)} />
+          </label>
+        </fieldset>
         {form.status === "trial" && <p>Trial aprovado: 14 dias sem cartão, contados na atribuição pelo servidor.</p>}
         <button className="button primary" disabled={saving || !selected} type="submit">{saving?"Salvando…":"Aplicar e auditar"}</button>
         {message && <p role="status">{message}</p>}{error && <p role="alert">{error}</p>}
