@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="800" viewBox="0 0 1400 800">
+  <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#2d1638"/><stop offset="1" stop-color="#9d5aae"/></linearGradient></defs>
+  <rect width="1400" height="800" fill="url(#g)"/><rect x="70" y="65" width="1260" height="670" rx="38" fill="#fff" opacity=".96"/>
+  <text x="130" y="160" font-family="Arial" font-size="28" fill="#7b3f8d" font-weight="700">CONCEITUAL / NÃO É SCREENSHOT</text>
+  <text x="130" y="245" font-family="Arial" font-size="66" fill="#24172a" font-weight="700">SaaS Manicure</text>
+  <text x="130" y="305" font-family="Arial" font-size="28" fill="#594e5d">Agenda profissional, agendamento online e gestão multi-tenant.</text>
+  <rect x="130" y="370" width="330" height="210" rx="24" fill="#f5ebf7"/><text x="165" y="420" font-family="Arial" font-size="24" fill="#4a2a54">Agenda</text><text x="165" y="465" font-family="Arial" font-size="18" fill="#6c5d70">Serviço → profissional</text><text x="165" y="495" font-family="Arial" font-size="18" fill="#6c5d70">→ horário → confirmação</text>
+  <rect x="520" y="370" width="330" height="210" rx="24" fill="#f5ebf7"/><text x="555" y="420" font-family="Arial" font-size="24" fill="#4a2a54">Studio</text><text x="555" y="465" font-family="Arial" font-size="18" fill="#6c5d70">Profissionais, serviços</text><text x="555" y="495" font-family="Arial" font-size="18" fill="#6c5d70">e histórico organizados</text>
+  <rect x="910" y="370" width="330" height="210" rx="24" fill="#f5ebf7"/><text x="945" y="420" font-family="Arial" font-size="24" fill="#4a2a54">White-label</text><text x="945" y="465" font-family="Arial" font-size="18" fill="#6c5d70">Cada tenant com sua</text><text x="945" y="495" font-family="Arial" font-size="18" fill="#6c5d70">identidade visual</text>
+  <text x="130" y="665" font-family="Arial" font-size="18" fill="#7f7282">Visão de produto — não comprova implementação de UI.</text>
+</svg>

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="900" viewBox="0 0 1400 900">
+  <rect width="1400" height="900" fill="#f8f4fa"/>
+  <text x="70" y="65" font-family="Arial" font-size="24" font-weight="700" fill="#7b3f8d">CONCEITUAL / IDEALIZADO — NÃO É SCREENSHOT REAL</text>
+  <rect x="60" y="100" width="1280" height="720" rx="28" fill="#fff" stroke="#e5d9e8"/>
+  <rect x="60" y="100" width="235" height="720" rx="28" fill="#382140"/>
+  <text x="100" y="165" font-family="Arial" font-size="28" fill="#fff" font-weight="700">Studio</text>
+  <text x="100" y="225" font-family="Arial" font-size="18" fill="#e9dceb">Agenda</text><text x="100" y="270" font-family="Arial" font-size="18" fill="#e9dceb">Clientes</text><text x="100" y="315" font-family="Arial" font-size="18" fill="#e9dceb">Serviços</text><text x="100" y="360" font-family="Arial" font-size="18" fill="#e9dceb">Profissionais</text>
+  <text x="350" y="165" font-family="Arial" font-size="36" fill="#2b2230" font-weight="700">Agenda de hoje</text>
+  <rect x="350" y="210" width="260" height="120" rx="18" fill="#f3e9f6"/><text x="380" y="255" font-family="Arial" font-size="18" fill="#6d4d76">09:00</text><text x="380" y="290" font-family="Arial" font-size="22" fill="#2b2230">Manicure clássica</text>
+  <rect x="640" y="210" width="260" height="120" rx="18" fill="#f3e9f6"/><text x="670" y="255" font-family="Arial" font-size="18" fill="#6d4d76">10:30</text><text x="670" y="290" font-family="Arial" font-size="22" fill="#2b2230">Esmaltação em gel</text>
+  <rect x="930" y="210" width="340" height="120" rx="18" fill="#efeaf0"/><text x="960" y="255" font-family="Arial" font-size="18" fill="#6d4d76">Indicadores idealizados</text><text x="960" y="292" font-family="Arial" font-size="22" fill="#2b2230">8 atendimentos • 2 livres</text>
+  <rect x="350" y="385" width="920" height="350" rx="18" fill="#fbf9fc" stroke="#eee5f0"/><text x="390" y="435" font-family="Arial" font-size="22" fill="#2b2230">Calendário / timeline conceitual</text>
+  <line x1="390" y1="485" x2="1220" y2="485" stroke="#d8ccd9"/><line x1="390" y1="555" x2="1220" y2="555" stroke="#d8ccd9"/><line x1="390" y1="625" x2="1220" y2="625" stroke="#d8ccd9"/>
+  <rect x="520" y="510" width="230" height="85" rx="14" fill="#d8b8df"/><rect x="830" y="580" width="260" height="85" rx="14" fill="#c6d9e8"/>
+  <text x="70" y="865" font-family="Arial" font-size="17" fill="#756b78">Direção visual futura; não deve ser usada como evidência de tela implementada.</text>
+</svg>
