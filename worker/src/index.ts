@@ -314,7 +314,7 @@ async function assignPlan(request: Request, env: Env): Promise<Response> {
   const writes = [
     {
       update: {name:docName(env, `tenants/${tenantId}`), fields:{commercial:field({
-        ...changes, limitOverrides: Object.fromEntries(Object.entries(changes.limitOverrides ?? {}).map(([k,v])=>[k,v===null?"__NULL__":v])),
+        ...changes, trialUntilEpochMs: trialUntil ? Date.parse(trialUntil) : 0, limitOverrides: Object.fromEntries(Object.entries(changes.limitOverrides ?? {}).map(([k,v])=>[k,v===null?"__NULL__":v])),
       })}},
       updateMask:{fieldPaths:["commercial"]},
       currentDocument:{updateTime:tenant.updateTime},

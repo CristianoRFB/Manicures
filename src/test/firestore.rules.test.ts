@@ -101,11 +101,11 @@ describe("tenant isolation and RBAC", () => {
   it("trial vencido bloqueia escrita, trial futuro permite", async () => {
     const db = env.authenticatedContext("ownerA").firestore();
     await env.withSecurityRulesDisabled(async ctx => {
-      await setDoc(doc(ctx.firestore(),"tenants/a"),{commercial:{planId:"pro",subscriptionStatus:"trial",trialUntil:"2020-01-01T00:00:00Z"}},{merge:true});
+      await setDoc(doc(ctx.firestore(),"tenants/a"),{commercial:{planId:"pro",subscriptionStatus:"trial",trialUntil:"2020-01-01T00:00:00Z",trialUntilEpochMs:Date.parse("2020-01-01T00:00:00Z")}},{merge:true});
     });
     await assertFails(setDoc(doc(db,"tenants/a/services/s3"),{tenantId:"a",name:"Novo",priceCents:3000,durationMin:60,active:true}));
     await env.withSecurityRulesDisabled(async ctx => {
-      await setDoc(doc(ctx.firestore(),"tenants/a"),{commercial:{planId:"pro",subscriptionStatus:"trial",trialUntil:"2090-01-01T00:00:00Z"}},{merge:true});
+      await setDoc(doc(ctx.firestore(),"tenants/a"),{commercial:{planId:"pro",subscriptionStatus:"trial",trialUntil:"2090-01-01T00:00:00Z",trialUntilEpochMs:Date.parse("2090-01-01T00:00:00Z")}},{merge:true});
     });
     await assertSucceeds(setDoc(doc(db,"tenants/a/services/s3"),{tenantId:"a",name:"Novo",priceCents:3000,durationMin:60,active:true}));
   });

@@ -25,7 +25,7 @@ service cloud.firestore {
           (
             tenant.commercial.subscriptionStatus == "active" ||
             (tenant.commercial.subscriptionStatus == "demo" && tenant.kind == "demo" && tenant.commercial.planId == "premium_demo") ||
-            (tenant.commercial.subscriptionStatus == "trial" && request.time < timestamp(tenant.commercial.trialUntil))
+            (tenant.commercial.subscriptionStatus == "trial" && request.time.toMillis() < tenant.commercial.get("trialUntilEpochMs", 0))
           )
           && (!("entitlementOverrides" in tenant.commercial)
             || !(feature in tenant.commercial.entitlementOverrides)
