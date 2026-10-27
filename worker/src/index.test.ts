@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteApp, initializeApp, type App } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import worker from "./index";
@@ -26,12 +26,15 @@ async function clearFirestore(host: string) {
 async function seed() {
   const db = getFirestore(adminApp);
   await Promise.all([
-    db.doc("tenants/a").set({ slug:"a", name:"A", status:"active", kind:"demo" }),
+    db.doc("tenants/a").set({ slug:"a", name:"A", status:"active", kind:"demo", commercial:{planId:"pro",subscriptionStatus:"active"} }),
     db.doc("tenants/a/services/s1").set({ tenantId:"a", name:"Manicure", priceCents:4000, durationMin:60, active:true }),
     db.doc("tenants/a/professionals/p1").set({ tenantId:"a", name:"Profissional A", active:true, serviceIds:["s1"] }),
-    db.doc("tenants/b").set({ slug:"b", name:"B", status:"active", kind:"demo" }),
+    db.doc("tenants/b").set({ slug:"b", name:"B", status:"active", kind:"demo", commercial:{planId:"premium_demo",subscriptionStatus:"demo"} }),
     db.doc("tenants/b/services/s1").set({ tenantId:"b", name:"Manicure B", priceCents:5000, durationMin:60, active:true }),
     db.doc("tenants/b/professionals/p1").set({ tenantId:"b", name:"Profissional B", active:true, serviceIds:["s1"] }),
+    db.doc("memberships/a_ownerA").set({userId:"ownerA",tenantId:"a",role:"tenant_owner",status:"active"}),
+    db.doc("memberships/b_ownerB").set({userId:"ownerB",tenantId:"b",role:"tenant_owner",status:"active"}),
+    db.doc("platformUsers/platform").set({role:"platform_owner",status:"active"}),
   ]);
 }
 
@@ -79,5 +82,95 @@ describe("Booking Worker trusted concurrency", () => {
     const b = await book("b", "2026-11-03T15:00:00");
     expect(a.status).toBe(201);
     expect(b.status).toBe(201);
+  });
+});
+
+
+describe("Commercial backend enforcement",()=>{
+  it("nega booking com plano suspenso mesmo com tenant ativo",async()=>{
+    await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"pro",subscriptionStatus:"suspended"}});
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(403);
+  });
+  it("nega booking quando trial expirou e preserva outro tenant",async()=>{
+    await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"pro",subscriptionStatus:"trial",trialUntil:"2020-01-01T00:00:00Z"}});
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(403);
+    expect((await book("b","2026-11-03T14:00:00")).status).toBe(201);
+  });
+  it("override explícito false bloqueia booking",async()=>{
+    await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"pro",subscriptionStatus:"active",entitlementOverrides:{"booking.create":false}}});
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(403);
+  });
+});
+
+describe("Trusted commercial and professional writes",()=>{
+  let realFetch:typeof fetch, jwk:JsonWebKey, privateKey:CryptoKey;
+  beforeAll(async()=>{
+    const pair=await crypto.subtle.generateKey({name:"RSASSA-PKCS1-v1_5",modulusLength:2048,
+      publicExponent:new Uint8Array([1,0,1]),hash:"SHA-256"},true,["sign","verify"]);
+    privateKey=pair.privateKey;
+    jwk=await crypto.subtle.exportKey("jwk",pair.publicKey);
+    (jwk as JsonWebKey & {kid:string}).kid="test-kid";
+    realFetch=globalThis.fetch;
+    vi.stubGlobal("fetch",((input:RequestInfo | URL, init?:RequestInit)=>{
+      if(String(input).includes("www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com"))
+        return Promise.resolve(new Response(JSON.stringify({keys:[jwk]}),{status:200,headers:{"content-type":"application/json"}}));
+      return realFetch(input,init);
+    }) as typeof fetch);
+  });
+  afterAll(()=>{vi.unstubAllGlobals();});
+  async function signedToken(uid:string) {
+    const now=Math.floor(Date.now()/1000);
+    const b64=(v:unknown)=>Buffer.from(JSON.stringify(v)).toString("base64url");
+    const head=b64({alg:"RS256",kid:"test-kid"});
+    const claims=b64({iss:`https://securetoken.google.com/${projectId}`,aud:projectId,sub:uid,iat:now-10,auth_time:now-10,exp:now+600});
+    const unsigned=`${head}.${claims}`;
+    const sig=await crypto.subtle.sign("RSASSA-PKCS1-v1_5",privateKey,new TextEncoder().encode(unsigned));
+    return `${unsigned}.${Buffer.from(sig).toString("base64url")}`;
+  }
+  async function create(tenantId:string,uid:string,name:string) {
+    return worker.fetch(new Request("http://worker.local/api/admin/professionals",{
+      method:"POST",
+      headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId,name,serviceIds:["s1"]}),
+    }),env());
+  }
+  it("Pro 3: contador atômico barra criação acima do limite",async()=>{
+    expect((await create("a","ownerA","Segunda manicure")).status).toBe(201);
+    expect((await create("a","ownerA","Terceira manicure")).status).toBe(201);
+    expect((await create("a","ownerA","Quarta manicure")).status).toBe(409);
+    const docs=await getFirestore(adminApp).collection("tenants/a/professionals").get();
+    expect(docs.docs.filter(doc=>doc.data().active).length).toBe(3);
+    const counter=await getFirestore(adminApp).doc("tenants/a/usage/staff").get();
+    expect(counter.data()?.professionalsActive).toBe(3);
+  });
+  it("owner de A não cria profissional em B",async()=>{
+    expect((await create("b","ownerA","Intruso")).status).toBe(403);
+  });
+  it("duas criações simultâneas não ultrapassam limite Essencial",async()=>{
+    await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"essencial",subscriptionStatus:"active"}});
+    const [a,b]=await Promise.all([create("a","ownerA","Mais uma"),create("a","ownerA","Outra profissional")]);
+    expect([a.status,b.status].sort()).toEqual([409,409]); // p1 já ocupa única vaga
+  });
+  it("Platform Owner atribui plano e audita before/after",async()=>{
+    const token=await signedToken("platform");
+    const response=await worker.fetch(new Request("http://worker.local/api/admin/plans/assign",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},
+      body:JSON.stringify({tenantId:"a",planId:"essencial",subscriptionStatus:"active",reason:"Ajuste manual aprovado pela plataforma"}),
+    }),env());
+    expect(response.status).toBe(200);
+    const tenant=(await getFirestore(adminApp).doc("tenants/a").get()).data();
+    expect(tenant?.commercial.planId).toBe("essencial");
+    const logs=await getFirestore(adminApp).collection("tenants/a/auditLogs").get();
+    expect(logs.size).toBe(1);
+    expect(logs.docs[0].data().before.planId).toBe("pro");
+    expect(logs.docs[0].data().actorId).toBe("platform");
+  });
+  it("tenant owner não atribui plano nem falsifica operador",async()=>{
+    const token=await signedToken("ownerA");
+    const response=await worker.fetch(new Request("http://worker.local/api/admin/plans/assign",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},
+      body:JSON.stringify({tenantId:"a",planId:"premium",subscriptionStatus:"active",reason:"Tentativa não autorizada"}),
+    }),env());
+    expect(response.status).toBe(403);
   });
 });
