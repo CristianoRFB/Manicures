@@ -1,0 +1,11 @@
+name = "saas-manicure-booking-api"
+main = "src/index.ts"
+compatibility_date = "2026-10-01"
+
+[vars]
+ALLOWED_ORIGIN = "http://localhost:5173"
+
+# Secrets obrigatórios no deploy (NÃO versionar valores):
+# FIREBASE_PROJECT_ID
+# FIREBASE_CLIENT_EMAIL
+# FIREBASE_PRIVATE_KEY
