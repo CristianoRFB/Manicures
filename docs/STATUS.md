@@ -54,3 +54,28 @@ GitHub Actions:
 
 ## Próximo estágio permitido
 Global Standard v01: PlanCatalog, EntitlementService, FeatureGating, Limits, DemoMode, SubscriptionStatus, TenantOverrides, ManualPlanAssignment e downgrade preservando dados — em trabalho separado.
+
+## Progresso após o CORE — Global Standard v01 em implementação
+
+Checkpoint de código validado: `9974c9097ca89c78d274ec9a553056b1b706b063`.
+GitHub Actions `40552172206`: **PASS**.
+
+A situação `READY_FOR_GLOBAL_STANDARD_IMPLEMENTATION` acima é o readiness de **entrada** do CORE, não significa implementação final do Standard.
+
+Módulos adicionados à branch desde o CORE:
+- PlanCatalog Essencial / Pro / Premium e pricing aprovado;
+- EntitlementService, SubscriptionStatus, trial, demo, limits e overrides;
+- manual plan assignment com auditoria;
+- quotas transacionais de profissionais e administradores;
+- frontend Platform Owner para plano, limites, overrides e administradores;
+- status de atendimentos, disponibilidade pública e proteção de reservas;
+- profissional ativo/inativo com CAS, proteção de bookings futuros;
+- correção de pausa do almoço, preço BRL e isolamento de estado visual entre tenants;
+- novos testes unitários e de Firebase Emulator.
+
+**Ainda incompleto:** edição de serviços/profissionais, agendas configuráveis e exceções, remarcação, cliente e profissional self-service, histórico, editor white-label, exportação, fluxos finais de storage/mídia, autenticação interativa do Auth Emulator no Worker e QA visual real.
+
+Cobertura mensurada, sem inflar parciais: **24/42 = 57,1%**.
+Veja `docs/PRE_PC_COMPLETENESS.md` e `docs/PC_FINAL_TEST_SESSION.md`.
+
+Sem merge, deploy, dados de cliente ou integração paga.
