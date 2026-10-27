@@ -41,6 +41,8 @@ export interface Membership {
   tenantId: string;
   role: Role;
   status: MembershipStatus;
+  professionalId?: string;
+  customerId?: string;
 }
 
 export interface Service {
@@ -66,6 +68,7 @@ export interface Appointment {
   tenantId: string;
   customerName: string;
   customerPhone: string;
+  customerId?: string;
   professionalId: string;
   serviceId: string;
   startsAt: string;
@@ -76,4 +79,15 @@ export interface Appointment {
   notes?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  actorId: string;
+  actorRole: Role;
+  tenantId: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  createdAt: string;
 }
