@@ -1326,6 +1326,39 @@ async function cancelCustomerAppointment(request:Request,env:Env):Promise<Respon
   return json(env,{ok:true,appointmentId,status:"cancelled"});
 }
 
+async function tenantQuotaOverview(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId))
+    return json(env,{error:"Tenant inválido."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Sem permissão para visualizar quotas."},403);
+  const [tenant,counter]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`tenants/${tenantId}/usage/staff`),
+  ]);
+  if(!tenant)return json(env,{error:"Tenant não encontrado."},404);
+  const [pros,admins]=await Promise.all([
+    counter?.fields?.professionalsActive?.integerValue !== undefined
+      ? Promise.resolve(int(counter,"professionalsActive"))
+      : listDocuments(env,token,`tenants/${tenantId}/professionals`).then(rows=>rows.filter(row=>bool(row,"active")).length),
+    counter?.fields?.tenantAdminsAdditional?.integerValue !== undefined
+      ? Promise.resolve(int(counter,"tenantAdminsAdditional"))
+      : listDocuments(env,token,"memberships").then(rows=>rows.filter(row=>
+        str(row,"tenantId")===tenantId && str(row,"role")==="tenant_admin" &&
+        str(row,"status")==="active").length),
+  ]);
+  if(![pros,admins].every(x=>Number.isSafeInteger(x)&&x>=0))
+    return json(env,{error:"Contadores de equipe inconsistentes."},409);
+  const limits={professionals_active:getLimit(asTenant(tenant,tenantId),"professionals_active"),
+    tenant_admins:getLimit(asTenant(tenant,tenantId),"tenant_admins")};
+  const exceeded={professionals_active:limits.professionals_active!==null&&pros>limits.professionals_active,
+    tenant_admins:limits.tenant_admins!==null&&admins>limits.tenant_admins};
+  return json(env,{tenantId,usage:{professionals_active:pros,tenant_admins:admins},
+    limits,exceeded,subscriptionStatus:parseCommercial(tenant)?.subscriptionStatus??"legacy"});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1354,6 +1387,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
       try { return await manageTenantAdmin(request,env); }
       catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/usage"){
+      try{return await tenantQuotaOverview(request,env);}
+      catch(error){console.error("Quota overview failed",error);return json(env,{error:"Não foi possível consultar quotas."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/admin/exports/appointments"){
       try{return await exportTenantAppointments(request,env);}
