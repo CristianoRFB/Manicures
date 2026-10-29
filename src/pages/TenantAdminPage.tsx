@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { repository } from "../data/repository";
-import type { Appointment, Membership, Professional, Service, Tenant } from "../domain/types";
+import type { Appointment, Membership, Professional, ScheduleBlock, Service, Tenant } from "../domain/types";
 import { resolveTenant } from "../lib/tenantResolver";
 import { useAuth } from "../auth/AuthProvider";
 import { getLimit, evaluate } from "../commercial/entitlements";
@@ -27,6 +27,11 @@ export function TenantAdminPage() {
   const [rescheduleError,setRescheduleError]=useState("");
   const [services, setServices] = useState<Service[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const [scheduleBlocks,setScheduleBlocks]=useState<ScheduleBlock[]>([]);
+  const [blockProId,setBlockProId]=useState("");
+  const [blockStart,setBlockStart]=useState("");
+  const [blockEnd,setBlockEnd]=useState("");
+  const [blockReason,setBlockReason]=useState("");
   const reschedulingAppointment=appointments.find(a=>a.id===reschedulingId);
   const auditLogged = useRef(false);
   const [scheduleProId,setScheduleProId]=useState("");
@@ -57,7 +62,7 @@ export function TenantAdminPage() {
     setAppointments([]);
     setReschedulingId("");setRescheduleSlots([]);setRescheduleDate("");setRescheduleSlot("");
     setServices([]);
-    setProfessionals([]);
+    setProfessionals([]);setScheduleBlocks([]);
     setLoadError("");
     auditLogged.current=false;
     resolveTenant(repository, tenantSlug).then(value => {
@@ -103,9 +108,10 @@ export function TenantAdminPage() {
       repository.listAppointments(tenant.id),
       repository.listServices(tenant.id,{includeInactive:true}),
       repository.listProfessionals(tenant.id,{includeInactive:true}),
-    ]).then(([a,s,p])=>{
+      repository.listScheduleBlocks(tenant.id),
+    ]).then(([a,s,p,b])=>{
       if(!active)return;
-      setAppointments(a);setServices(s);setProfessionals(p);
+      setAppointments(a);setServices(s);setProfessionals(p);setScheduleBlocks(b);
     }).catch(error=>{
       if(active)setLoadError(error instanceof Error ? error.message : "Não foi possível carregar os dados.");
     });
@@ -121,12 +127,17 @@ export function TenantAdminPage() {
 
   async function refresh() {
     if (!tenant) return;
-    const [a,s,p] = await Promise.all([repository.listAppointments(tenant.id),
-      repository.listServices(tenant.id),repository.listProfessionals(tenant.id,{includeInactive:true})]);
-    setAppointments(a);setServices(s);setProfessionals(p);
+    const [a,s,p,b] = await Promise.all([repository.listAppointments(tenant.id),
+      repository.listServices(tenant.id,{includeInactive:true}),
+      repository.listProfessionals(tenant.id,{includeInactive:true}),
+      repository.listScheduleBlocks(tenant.id)]);
+    setAppointments(a);setServices(s);setProfessionals(p);setScheduleBlocks(b);
   }
 
   const selectedScheduleProfessional=professionals.find(pro=>pro.id===scheduleProId);
+  useEffect(()=>{
+    if(!blockProId && professionals.length)setBlockProId(professionals[0].id);
+  },[professionals,blockProId]);
   useEffect(()=>{
     if(!scheduleProId && professionals.length)setScheduleProId(professionals[0].id);
   },[professionals,scheduleProId]);
@@ -163,6 +174,30 @@ export function TenantAdminPage() {
       setFeedback("Expediente atualizado com auditoria. Agendamentos futuros incompatíveis são protegidos.");
     }catch(error){setOperationError(error instanceof Error?error.message:"Falha ao salvar agenda.");}
     finally{setWorking(false);}
+  }
+
+  async function blockRequest(endpoint:"create"|"cancel",payload:Record<string,unknown>){
+    if(!tenant||!user||working)return;
+    setWorking(true);setOperationError("");setFeedback("");
+    try{
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!base)throw new Error("Worker não configurado.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/admin/schedule-blocks/${endpoint}`,{
+        method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:tenant.id,...payload}),
+      });
+      const result=await response.json() as {error?:string};
+      if(!response.ok)throw new Error(result.error??"Operação inválida.");
+      await refresh();setBlockStart("");setBlockEnd("");setBlockReason("");
+      setFeedback(endpoint==="create"?"Folga cadastrada com auditoria.":"Bloqueio cancelado; histórico preservado.");
+    }catch(error){setOperationError(error instanceof Error?error.message:"Falha de rede.");}
+    finally{setWorking(false);}
+  }
+  async function createBlock(event:React.FormEvent){
+    event.preventDefault();
+    if(!blockStart||!blockEnd||!blockProId)return;
+    await blockRequest("create",{professionalId:blockProId,startsAt:`${blockStart}:00`,
+      endsAt:`${blockEnd}:00`,reason:blockReason});
   }
 
   async function addProfessional(event: React.FormEvent) {
@@ -384,6 +419,31 @@ export function TenantAdminPage() {
         <label>Fim da pausa<input type="time" value={scheduleBreakEnd} required onChange={event=>setScheduleBreakEnd(event.target.value)}/></label>
         <button type="submit" className="button primary" disabled={working||!scheduleProId}>Salvar expediente</button>
       </form>
+      <h2>Folgas e bloqueios de agenda</h2>
+      <form className="form narrow" onSubmit={(event)=>void createBlock(event)}>
+        <label>Profissional
+          <select value={blockProId} required onChange={event=>setBlockProId(event.target.value)}>
+            {professionals.map(pro=><option key={pro.id} value={pro.id}>{pro.name}</option>)}
+          </select>
+        </label>
+        <label>Início do bloqueio
+          <input type="datetime-local" value={blockStart} required onChange={event=>setBlockStart(event.target.value)}/>
+        </label>
+        <label>Fim do bloqueio
+          <input type="datetime-local" value={blockEnd} required onChange={event=>setBlockEnd(event.target.value)}/>
+        </label>
+        <label>Motivo<input value={blockReason} required minLength={3} maxLength={160}
+          onChange={event=>setBlockReason(event.target.value)}/></label>
+        <button className="button primary" type="submit" disabled={working||!blockProId}>Adicionar bloqueio</button>
+      </form>
+      {scheduleBlocks.length>0&&<div className="grid cards">{scheduleBlocks
+        .slice().sort((a,b)=>b.startsAt.localeCompare(a.startsAt)).map(block=><article className="card" key={block.id}>
+          <h3>{professionals.find(pro=>pro.id===block.professionalId)?.name??block.professionalId}</h3>
+          <p>{block.startsAt.replace("T"," ")} até {block.endsAt.replace("T"," ")}</p>
+          <p>{block.reason} — {block.active?"Ativo":"Cancelado"}</p>
+          {block.active&&<button className="button" type="button" disabled={working}
+            onClick={()=>void blockRequest("cancel",{professionalId:block.professionalId,blockId:block.id})}>Cancelar bloqueio</button>}
+        </article>)}</div>}
       {!evaluate(tenant,"services.manage").allowed && <p>Cadastro bloqueado pelo estado comercial ou configuração deste tenant.</p>}
       {feedback && <p role="status">{feedback}</p>}
       {operationError && <p role="alert">{operationError}</p>}
