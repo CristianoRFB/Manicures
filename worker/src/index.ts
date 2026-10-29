@@ -1097,6 +1097,48 @@ async function updateTenantBranding(request:Request,env:Env):Promise<Response>{
   return json(env,{ok:true,branding:after,auditId});
 }
 
+function csvCell(value:string):string{
+  // Formula injection mitigation applies after optional whitespace too.
+  const safe=/^[\s]*[=+@\-]/.test(value)?"'"+value:value;
+  return '"'+safe.replace(/"/g,'""')+'"';
+}
+async function exportTenantAppointments(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as {tenantId?:unknown};
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId))return json(env,{error:"Tenant inválido."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Sem permissão para exportação."},403);
+  if(!await getDocument(env,token,`tenants/${tenantId}`))
+    return json(env,{error:"Tenant não encontrado."},404);
+  const appointments=await listDocuments(env,token,`tenants/${tenantId}/appointments`);
+  if(appointments.length>10000)return json(env,{error:"Exportação exige paginação especial acima de 10000 registros."},413);
+  const keys=["id","startsAt","endsAt","status","serviceId","professionalId",
+    "customerName","customerPhone","priceSnapshotCents","durationSnapshotMin"];
+  const rows=appointments.map(doc=>keys.map(key=>{
+    if(key==="id")return doc.name.split("/").pop()??"";
+    if(["priceSnapshotCents","durationSnapshotMin"].includes(key))return String(int(doc,key));
+    return str(doc,key);
+  }).map(csvCell).join(","));
+  const csv="\uFEFF"+keys.join(",")+"\r\n"+rows.join("\r\n")+"\r\n";
+  const auditId=crypto.randomUUID(),now=new Date().toISOString();
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const audit=await fetch(commitUrl(env),{method:"POST",headers,
+    body:JSON.stringify({writes:[{update:{
+      name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+        action:"appointments.export_csv",resourceType:"appointments",resourceId:"export",
+        recordCount:appointments.length,createdAt:now}),
+    },currentDocument:{exists:false}}]})});
+  if(!audit.ok)return json(env,{error:"Não foi possível auditar exportação; arquivo não foi entregue."},500);
+  return new Response(csv,{status:200,headers:{...cors(env),
+    "content-type":"text/csv; charset=utf-8",
+    "content-disposition":`attachment; filename="manicure-${tenantId}-appointments.csv"`,
+    "cache-control":"no-store",
+  }});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1117,6 +1159,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
       try { return await manageTenantAdmin(request,env); }
       catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/exports/appointments"){
+      try{return await exportTenantAppointments(request,env);}
+      catch(error){console.error("Export failed",error);return json(env,{error:"Falha ao exportar agendamentos."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/admin/tenants/branding"){
       try{return await updateTenantBranding(request,env);}
