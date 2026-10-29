@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { onAuthStateChanged, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import { createUserWithEmailAndPassword, onAuthStateChanged, reload, sendEmailVerification, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { getFirebaseServices } from "../lib/firebase";
 
 interface AuthContextValue {
@@ -7,6 +7,9 @@ interface AuthContextValue {
   loading: boolean;
   user: User | null;
   signIn: (email: string, password: string) => Promise<void>;
+  registerCustomer: (email:string,password:string) => Promise<void>;
+  sendVerificationEmail: () => Promise<void>;
+  refreshVerifiedUser: () => Promise<boolean>;
   logout: () => Promise<void>;
 }
 
@@ -36,6 +39,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signIn: async (email, password) => {
       if (!services) throw new Error("Firebase não configurado.");
       await signInWithEmailAndPassword(services.auth, email.trim(), password);
+    },
+    registerCustomer:async(email,password)=>{
+      if(!services)throw new Error("Firebase não configurado.");
+      const credentials=await createUserWithEmailAndPassword(services.auth,email.trim(),password);
+      await sendEmailVerification(credentials.user);
+    },
+    sendVerificationEmail:async()=>{
+      if(!services?.auth.currentUser)throw new Error("Entre em sua conta primeiro.");
+      await sendEmailVerification(services.auth.currentUser);
+    },
+    refreshVerifiedUser:async()=>{
+      if(!services?.auth.currentUser)return false;
+      await reload(services.auth.currentUser);
+      await services.auth.currentUser.getIdToken(true);
+      setUser(services.auth.currentUser);
+      return services.auth.currentUser.emailVerified;
     },
     logout: async () => {
       if (!services) return;
