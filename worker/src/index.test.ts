@@ -391,6 +391,32 @@ describe("Trusted commercial and professional writes",()=>{
   it("não exporta dados do Tenant B para owner A",async()=>{
     expect((await exportAppointments("ownerA","b")).status).toBe(403);
   });
+  async function editPro(uid:string,changes:Record<string,unknown>={}){
+    return worker.fetch(new Request("http://worker.local/api/admin/professionals/edit",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId:"a",professionalId:"p1",name:"Novo nome",
+        serviceIds:["s1"],...changes}),
+    }),env());
+  }
+  it("editar profissional altera nome/serviços sem mexer na quota e audita",async()=>{
+    const result=await editPro("ownerA");
+    expect(result.status).toBe(200);
+    const db=getFirestore(adminApp);
+    const pro=(await db.doc("tenants/a/professionals/p1").get()).data();
+    expect(pro?.name).toBe("Novo nome");
+    expect(pro?.active).toBe(true);
+    const count=await db.collection("tenants/a/professionals").get();
+    expect(count.size).toBe(1);
+    const logs=await db.collection("tenants/a/auditLogs").get();
+    expect(logs.size).toBe(1);
+    expect(logs.docs[0].data().action).toBe("professionals.edit");
+  });
+  it("não remove serviço de agendamento futuro nem permite acesso de B",async()=>{
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(201);
+    expect((await editPro("ownerA",{serviceIds:[]})).status).toBe(409);
+    expect((await editPro("ownerB")).status).toBe(403);
+    expect((await editPro("ownerA",{serviceIds:["service-id-inexistente"]})).status).toBe(400);
+  });
   it("Pro 3: contador atômico barra criação acima do limite",async()=>{
     expect((await create("a","ownerA","Segunda manicure")).status).toBe(201);
     expect((await create("a","ownerA","Terceira manicure")).status).toBe(201);
