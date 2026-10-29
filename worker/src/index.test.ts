@@ -216,6 +216,50 @@ describe("Trusted commercial and professional writes",()=>{
   it("owner A não pode alterar profissional em B",async()=>{
     expect((await activateProfessional("b","ownerA","p1",false)).status).toBe(403);
   });
+  async function configureHours(uid:string,weekday:number,options:Record<string,unknown>={}){
+    return worker.fetch(new Request("http://worker.local/api/admin/professionals/schedule",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId:"a",professionalId:"p1",weekday,closed:false,startMinute:600,endMinute:960,
+        breakStartMinute:720,breakEndMinute:780,...options}),
+    }),env());
+  }
+  async function available(date="2026-11-03"){
+    const response=await worker.fetch(new Request(
+      `http://worker.local/api/availability?tenantId=a&serviceId=s1&professionalId=p1&date=${date}`),env());
+    expect(response.status).toBe(200);
+    return (await response.json() as {slots:string[]}).slots;
+  }
+  it("expediente customizado filtra slots e revalida reserva no servidor",async()=>{
+    expect((await configureHours("ownerA",2)).status).toBe(200);
+    const slots=await available();
+    expect(slots).toContain("2026-11-03T10:00:00");
+    expect(slots).not.toContain("2026-11-03T09:00:00");
+    expect(slots).not.toContain("2026-11-03T11:30:00");
+    expect(slots).not.toContain("2026-11-03T17:00:00");
+    expect((await book("a","2026-11-03T09:00:00")).status).toBe(409);
+    expect((await book("a","2026-11-03T10:00:00")).status).toBe(201);
+  });
+  it("dia fechado não oferece horário e não confirma reserva",async()=>{
+    expect((await configureHours("ownerA",2,{closed:true})).status).toBe(200);
+    expect(await available()).toEqual([]);
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(409);
+  });
+  it("não remove expediente de agendamentos futuros nem concede acesso cruzado",async()=>{
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(201);
+    expect((await configureHours("ownerA",2,{closed:true})).status).toBe(409);
+    expect((await configureHours("ownerB",2)).status).toBe(403);
+    expect((await configureHours("ownerA",2,{startMinute:900,endMinute:600})).status).toBe(400);
+  });
+  it("mudança de expediente preserva documentos e cria log de auditoria",async()=>{
+    expect((await configureHours("ownerA",2)).status).toBe(200);
+    const pro=(await getFirestore(adminApp).doc("tenants/a/professionals/p1").get()).data();
+    expect(pro?.weeklyHours?.["2"]?.startMinute).toBe(600);
+    expect(pro?.weeklyHours?.["2"]?.endMinute).toBe(960);
+    const log=await getFirestore(adminApp).collection("tenants/a/auditLogs").get();
+    expect(log.size).toBe(1);
+    expect(log.docs[0].data().action).toBe("professionals.schedule_update");
+  });
+
   it("Pro 3: contador atômico barra criação acima do limite",async()=>{
     expect((await create("a","ownerA","Segunda manicure")).status).toBe(201);
     expect((await create("a","ownerA","Terceira manicure")).status).toBe(201);
