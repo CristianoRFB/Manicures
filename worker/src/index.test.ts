@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { deleteApp, initializeApp, type App } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 import worker from "./index";
 
 const projectId = "manicure-worker-test";
@@ -401,5 +402,62 @@ describe("Trusted commercial and professional writes",()=>{
       body:JSON.stringify({tenantId:"a",planId:"premium",subscriptionStatus:"active",reason:"Tentativa não autorizada"}),
     }),env());
     expect(response.status).toBe(403);
+  });
+});
+
+describe("Firebase Auth Emulator end-to-end local-only",()=>{
+  const localProject="manicure-demo";
+  let localApp:App;
+  let localToken="";
+  beforeAll(async()=>{
+    process.env.FIREBASE_AUTH_EMULATOR_HOST="127.0.0.1:9099";
+    localApp=initializeApp({projectId:localProject},"local-emulator-auth");
+    const auth=getAuth(localApp);
+    try{
+      await auth.createUser({uid:"local-owner-a",email:"local-owner-a@example.test",
+        password:"DemoLocalTest123!",emailVerified:true});
+    }catch(error){
+      const code=(error as {code?:string}).code;
+      if(code!=="auth/uid-already-exists"&&code!=="auth/email-already-exists")throw error;
+    }
+    const db=getFirestore(localApp);
+    await db.doc("tenants/local-a").set({name:"Local A",status:"active",kind:"demo",
+      commercial:{planId:"pro",subscriptionStatus:"active"}});
+    await db.doc("tenants/local-a/services/manicure").set({name:"Manicure",tenantId:"local-a",
+      priceCents:4000,durationMin:60,active:true});
+    await db.doc("tenants/local-b").set({name:"Local B",status:"active",kind:"demo",
+      commercial:{planId:"pro",subscriptionStatus:"active"}});
+    await db.doc("tenants/local-b/services/manicure").set({name:"Manicure",tenantId:"local-b",
+      priceCents:4000,durationMin:60,active:true});
+    await db.doc("memberships/local-a_local-owner-a").set({userId:"local-owner-a",
+      tenantId:"local-a",status:"active",role:"tenant_owner"});
+    const response=await fetch(
+      "http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=demo-key",{
+        method:"POST",headers:{"content-type":"application/json"},
+        body:JSON.stringify({email:"local-owner-a@example.test",password:"DemoLocalTest123!",returnSecureToken:true}),
+      });
+    if(!response.ok)throw new Error("Auth Emulator signInWithPassword failed: "+response.status);
+    localToken=(await response.json() as {idToken:string}).idToken;
+  });
+  afterAll(async()=>{if(localApp)await deleteApp(localApp);});
+  const emulatorEnv=()=>({
+    FIREBASE_PROJECT_ID:localProject,FIREBASE_CLIENT_EMAIL:"none@local.invalid",
+    FIREBASE_PRIVATE_KEY:"none",FIRESTORE_EMULATOR_HOST:"127.0.0.1:8080",
+    FIREBASE_AUTH_EMULATOR_HOST:"127.0.0.1:9099",ALLOWED_ORIGIN:"http://localhost:5173",
+  });
+  async function create(tenantId:string,envOverride:Record<string,string>={}){
+    return worker.fetch(new Request("http://worker.local/api/admin/professionals",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${localToken}`},
+      body:JSON.stringify({tenantId,name:"Manicure teste",serviceIds:["manicure"]}),
+    }),{...emulatorEnv(),...envOverride});
+  }
+  it("aceita sessão REAL emitida pelo Auth Emulator local para o Tenant A",async()=>{
+    expect((await create("local-a")).status).toBe(201);
+  });
+  it("não libera Tenant B com sessão do Owner A",async()=>{
+    expect((await create("local-b")).status).toBe(403);
+  });
+  it("não habilita bypass de Auth Emulator sem guarda de projeto sintético",async()=>{
+    expect((await create("local-a",{FIREBASE_PROJECT_ID:"projeto-real-nao-sintetico"})).status).toBe(403);
   });
 });
