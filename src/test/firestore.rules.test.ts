@@ -72,6 +72,29 @@ describe("tenant isolation and RBAC", () => {
     await assertFails(setDoc(doc(db, "tenants/a/services/nope"), { tenantId:"a", active:true }));
   });
 
+  it("cliente autenticado lê somente próprios agendamentos e perfil do tenant",async()=>{
+    await env.withSecurityRulesDisabled(async ctx=>{
+      const db=ctx.firestore();
+      await setDoc(doc(db,"tenants/a/appointments/customer-own"),{
+        tenantId:"a",professionalId:"p1",status:"pending",customerId:"c1"});
+      await setDoc(doc(db,"tenants/a/appointments/customer-other"),{
+        tenantId:"a",professionalId:"p1",status:"pending",customerId:"c2"});
+      await setDoc(doc(db,"tenants/a/customers/c1"),{tenantId:"a",userId:"customerA"});
+      await setDoc(doc(db,"tenants/a/customers/c2"),{tenantId:"a",userId:"other"});
+    });
+    const db=env.authenticatedContext("customerA").firestore();
+    await assertSucceeds(getDoc(doc(db,"tenants/a/appointments/customer-own")));
+    await assertFails(getDoc(doc(db,"tenants/a/appointments/customer-other")));
+    await assertFails(getDoc(doc(db,"tenants/a/appointments/own")));
+    await assertSucceeds(getDocs(query(collection(db,"tenants/a/appointments"),where("customerId","==","c1"))));
+    await assertFails(getDocs(collection(db,"tenants/a/appointments")));
+    await assertFails(getDocs(query(collection(db,"tenants/a/appointments"),where("customerId","==","c2"))));
+    await assertFails(getDoc(doc(db,"tenants/b/appointments/b1")));
+    await assertSucceeds(getDoc(doc(db,"tenants/a/customers/c1")));
+    await assertFails(getDoc(doc(db,"tenants/a/customers/c2")));
+    await assertFails(setDoc(doc(db,"tenants/a/customers/c1"),{tenantId:"a",role:"tenant_owner"}));
+  });
+
   it("membership disabled não ganha acesso privado", async () => {
     const db = env.authenticatedContext("disabled").firestore();
     await assertFails(getDoc(doc(db, "tenants/a/appointments/own")));
