@@ -64,7 +64,10 @@ export function TenantPublicPage() {
             </article>
           ))}
         </div>
-        {services.length>0&&<Link className="button primary" to={`/${tenant.slug}/book`}>Agendar agora</Link>}
+        <div className="row">
+          {services.length>0&&<Link className="button primary" to={`/${tenant.slug}/book`}>Agendar agora</Link>}
+          <Link className="button" to={`/customer/${tenant.slug}`}>Minha agenda</Link>
+        </div>
       </section>
     </TenantTheme>
   );

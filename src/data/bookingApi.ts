@@ -7,6 +7,7 @@ interface CreateBookingInput {
   startsAt: string;
   customerName: string;
   customerPhone: string;
+  authToken?: string;
 }
 
 export async function createProtectedBooking(input: CreateBookingInput): Promise<Appointment> {
@@ -14,7 +15,7 @@ export async function createProtectedBooking(input: CreateBookingInput): Promise
   if (!baseUrl) throw new Error("Booking API não configurada.");
   const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/bookings`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: { "content-type": "application/json", ...(input.authToken?{authorization:`Bearer ${input.authToken}`}:{}) },
     body: JSON.stringify({
       tenantId: input.tenant.id,
       serviceId: input.service.id,

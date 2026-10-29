@@ -7,6 +7,7 @@ import { createSlots } from "../domain/availability";
 import { resolveTenant } from "../lib/tenantResolver";
 import { TenantTheme } from "../components/TenantTheme";
 import { demoModeEnabled } from "../lib/firebase";
+import { useAuth } from "../auth/AuthProvider";
 
 function tomorrow(): string {
   const d = new Date();
@@ -16,6 +17,8 @@ function tomorrow(): string {
 
 export function BookingPage() {
   const { tenantSlug } = useParams();
+  const {user}=useAuth();
+  const [linkedCustomer,setLinkedCustomer]=useState(false);
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -56,6 +59,17 @@ export function BookingPage() {
     return()=>{active=false;};
   },[tenantSlug]);
 
+  useEffect(()=>{
+    let live=true;
+    setLinkedCustomer(false);
+    if(!tenant||!user||!user.emailVerified||demoModeEnabled())return;
+    repository.getMembership(tenant.id,user.uid).then(member=>{
+      if(live)setLinkedCustomer(Boolean(member?.status==="active"&&member.role==="customer"
+        &&member.customerId===user.uid&&member.tenantId===tenant.id));
+    }).catch(()=>{if(live)setLinkedCustomer(false);});
+    return()=>{live=false;};
+  },[tenant?.id,user?.uid]);
+
   const service = services.find((item) => item.id === serviceId);
   const eligibleProfessionals = professionals.filter((item) => item.serviceIds.includes(serviceId));
   const professional = eligibleProfessionals.find((item) => item.id === professionalId) ?? eligibleProfessionals[0];
@@ -95,7 +109,9 @@ export function BookingPage() {
     if(submitting)return;
     setSubmitting(true);setMessage("");setReceipt(null);
     try {
-      const saved=await createProtectedBooking({ tenant, service, professionalId: professional.id, startsAt: slot, customerName: name.trim(), customerPhone: phone.trim() });
+      const saved=await createProtectedBooking({ tenant, service, professionalId: professional.id,
+        startsAt: slot, customerName: name.trim(), customerPhone: phone.trim(),
+        authToken:linkedCustomer&&user?await user.getIdToken(true):undefined });
       setReceipt({id:saved.id,service:service.name,professional:professional.name,
         start:saved.startsAt,priceCents:saved.priceSnapshotCents});
       setMessage("Agendamento confirmado para solicitação. A equipe poderá validar seu atendimento.");
@@ -117,6 +133,8 @@ export function BookingPage() {
       <section className="page narrow">
         {tenant.kind === "demo" && <div className="badge">DEMONSTRAÇÃO</div>}
         <h1>Novo agendamento</h1>
+        <p>{linkedCustomer?"Reserva vinculada à sua conta de cliente verificada.":"Reserva como visitante: ela não aparecerá no histórico de nenhuma conta sem vínculo autenticado."}</p>
+        <Link to={`/customer/${tenant.slug}`}>Entrar, cadastrar ou ver meus horários</Link>
         <form className="form" onSubmit={submit}>
           <label>Serviço<select value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlot(""); }}>
             {services.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
@@ -147,7 +165,7 @@ export function BookingPage() {
           <p>{new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(receipt.priceCents/100)}</p>
           <p>Guarde este protocolo. Ele não é um link público e não expõe dados pessoais.</p>
         </section>}
-        <Link to={`/app/${tenant.slug}`}>Ir para o painel →</Link>
+        <Link to={`/customer/${tenant.slug}`}>Minha agenda</Link>
       </section>
     </TenantTheme>
   );
