@@ -94,3 +94,8 @@ export interface AuditLog {
   resourceId: string;
   createdAt: string;
 }
+
+export interface ScheduleBlock {
+  id:string;tenantId:string;professionalId:string;startsAt:string;endsAt:string;
+  reason:string;active:boolean;createdAt:string;updatedAt:string;
+}

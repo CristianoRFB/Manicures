@@ -1,5 +1,5 @@
 import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
-import type { Appointment, AuditLog, Membership, Professional, Service, Tenant } from "../domain/types";
+import type { Appointment, AuditLog, Membership, Professional, Service, ScheduleBlock, Tenant } from "../domain/types";
 import { getFirebaseServices } from "../lib/firebase";
 import type { Repository } from "./repository";
 
@@ -61,6 +61,11 @@ export class FirestoreRepository implements Repository {
     const records = collection(dbOrThrow(), "tenants", tenantId, "professionals");
     const snapshot = await getDocs(options?.includeInactive ? records : query(records,where("active","==",true)));
     return snapshot.docs.map((item) => withId<Professional>(item.id, item.data()));
+  }
+
+  async listScheduleBlocks(tenantId:string):Promise<ScheduleBlock[]>{
+    const snapshot=await getDocs(collection(dbOrThrow(),"tenants",tenantId,"scheduleBlocks"));
+    return snapshot.docs.map(item=>withId<ScheduleBlock>(item.id,item.data()));
   }
 
   async listAppointments(tenantId: string): Promise<Appointment[]> {

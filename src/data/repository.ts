@@ -1,4 +1,4 @@
-import type { Appointment, AuditLog, Membership, Professional, Service, Tenant } from "../domain/types";
+import type { Appointment, AuditLog, Membership, Professional, Service, ScheduleBlock, Tenant } from "../domain/types";
 import { demoModeEnabled, firebaseConfigured } from "../lib/firebase";
 import { demoAppointments, demoProfessionals, demoServices, demoTenant, demoTenantB } from "./demoSeed";
 import { FirestoreRepository } from "./firestoreRepository";
@@ -11,6 +11,7 @@ export interface Repository {
   createService(tenantId: string, input: Pick<Service, "name" | "description" | "priceCents" | "durationMin">): Promise<Service>;
   listProfessionals(tenantId: string, options?: {includeInactive?: boolean}): Promise<Professional[]>;
   listAppointments(tenantId: string): Promise<Appointment[]>;
+  listScheduleBlocks(tenantId: string): Promise<ScheduleBlock[]>;
   getMembership(tenantId: string, userId: string): Promise<Membership | null>;
   isPlatformOwner(userId: string): Promise<boolean>;
   recordAuditLog(log: AuditLog): Promise<void>;
@@ -38,6 +39,7 @@ export class DemoRepository implements Repository {
   async createService(): Promise<Service> { throw new Error("Administração exige Firebase Auth/Firestore; demo local é só leitura."); }
   async listProfessionals(tenantId: string, options?: {includeInactive?: boolean}) { return demoProfessionals.filter((item) => item.tenantId === tenantId && (options?.includeInactive || item.active)); }
   async listAppointments(tenantId: string) { return readStoredAppointments().filter((item) => item.tenantId === tenantId); }
+  async listScheduleBlocks():Promise<ScheduleBlock[]> {return [];} 
   async getMembership() { return null; }
   async isPlatformOwner() { return false; }
   async recordAuditLog() { /* demo local não é evidência de auditoria real */ }
