@@ -6,6 +6,7 @@ import { resolveTenant } from "../lib/tenantResolver";
 import { useAuth } from "../auth/AuthProvider";
 import { getLimit, evaluate } from "../commercial/entitlements";
 import { LoginPanel } from "../components/LoginPanel";
+import { getProtectedAvailability } from "../data/bookingApi";
 import {parseBRLToCents} from "../domain/currency";
 
 const ADMIN_ROLES = new Set(["tenant_owner", "tenant_admin"]);
@@ -18,8 +19,15 @@ export function TenantAdminPage() {
   const [membership, setMembership] = useState<Membership | null>(null);
   const [platformOwner, setPlatformOwner] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [reschedulingId,setReschedulingId]=useState("");
+  const [rescheduleDate,setRescheduleDate]=useState("");
+  const [rescheduleSlot,setRescheduleSlot]=useState("");
+  const [rescheduleSlots,setRescheduleSlots]=useState<string[]>([]);
+  const [rescheduleLoading,setRescheduleLoading]=useState(false);
+  const [rescheduleError,setRescheduleError]=useState("");
   const [services, setServices] = useState<Service[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
+  const reschedulingAppointment=appointments.find(a=>a.id===reschedulingId);
   const auditLogged = useRef(false);
   const [scheduleProId,setScheduleProId]=useState("");
   const [scheduleDay,setScheduleDay]=useState(1);
@@ -47,6 +55,7 @@ export function TenantAdminPage() {
     setMembership(null);
     setPlatformOwner(false);
     setAppointments([]);
+    setReschedulingId("");setRescheduleSlots([]);setRescheduleDate("");setRescheduleSlot("");
     setServices([]);
     setProfessionals([]);
     setLoadError("");
@@ -172,6 +181,43 @@ export function TenantAdminPage() {
       await refresh();setNewProName("");setNewProServices([]);
       setFeedback("Profissional cadastrada com validação de limite e auditoria.");
     } catch(err) {setOperationError(err instanceof Error ? err.message : "Falha de rede.");}
+    finally{setWorking(false);}
+  }
+
+  useEffect(()=>{
+    if(!tenant || !reschedulingAppointment || !rescheduleDate){setRescheduleSlots([]);return;}
+    let live=true;
+    setRescheduleLoading(true);setRescheduleError("");setRescheduleSlots([]);
+    getProtectedAvailability({tenantId:tenant.id,serviceId:reschedulingAppointment.serviceId,
+      professionalId:reschedulingAppointment.professionalId,date:rescheduleDate})
+      .then(slots=>{if(live)setRescheduleSlots(slots);})
+      .catch(err=>{if(live)setRescheduleError(err instanceof Error?err.message:"Falha ao carregar horários.");})
+      .finally(()=>{if(live)setRescheduleLoading(false);});
+    return()=>{live=false;};
+  },[tenant?.id,reschedulingId,rescheduleDate]);
+
+  function beginReschedule(appointment:Appointment){
+    setReschedulingId(appointment.id);
+    setRescheduleDate(appointment.startsAt.slice(0,10));
+    setRescheduleSlot("");
+    setRescheduleError("");
+  }
+  async function submitReschedule(event:React.FormEvent){
+    event.preventDefault();
+    if(!tenant||!user||!reschedulingId||!rescheduleSlot||working)return;
+    setWorking(true);setFeedback("");setOperationError("");
+    try{
+      const api=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!api)throw new Error("Worker não configurado.");
+      const response=await fetch(`${api.replace(/\/$/,"")}/api/admin/appointments/reschedule`,{
+        method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:tenant.id,appointmentId:reschedulingId,startsAt:rescheduleSlot}),
+      });
+      const payload=await response.json() as {error?:string};
+      if(!response.ok)throw new Error(payload.error??"Não foi possível remarcar.");
+      setReschedulingId("");setRescheduleSlot("");setRescheduleSlots([]);
+      await refresh();setFeedback("Agendamento remarcado. Conflitos e histórico preservados.");
+    }catch(error){setOperationError(error instanceof Error?error.message:"Falha de rede.");}
     finally{setWorking(false);}
   }
 
@@ -345,12 +391,38 @@ export function TenantAdminPage() {
       <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Horário</th><th>Status</th><th>Ações</th></tr></thead><tbody>
         {[...appointments].sort((a,b) => a.startsAt.localeCompare(b.startsAt)).map((a) => (
           <tr key={a.id}><td>{a.customerName}</td><td>{services.find((s) => s.id === a.serviceId)?.name ?? a.serviceId}</td><td>{professionals.find((p) => p.id === a.professionalId)?.name ?? a.professionalId}</td><td>{a.startsAt.replace("T", " ").slice(0,16)}</td><td>{a.status}</td>
-            <td className="row">{(actionByStatus[a.status]??[]).map(action=><button
-              type="button" className="button" key={action.next} disabled={working}
-              onClick={()=>void changeStatus(a.id,action.next)}>{action.label}</button>)}</td>
+            <td className="row">
+              {(actionByStatus[a.status]??[]).map(action=><button
+                type="button" className="button" key={action.next} disabled={working}
+                onClick={()=>void changeStatus(a.id,action.next)}>{action.label}</button>)}
+              {(["pending","confirmed"] as string[]).includes(a.status)&&
+                <button className="button" type="button" disabled={working}
+                  onClick={()=>beginReschedule(a)}>Remarcar</button>}
+            </td>
           </tr>
         ))}
       </tbody></table></div>
+      {reschedulingAppointment && <form className="form narrow" onSubmit={(event)=>void submitReschedule(event)}>
+        <h3>Remarcar — {reschedulingAppointment.customerName}</h3>
+        <p>Profissional e serviço permanecem os mesmos. O Worker verifica disponibilidade e transfere a reserva atomicamente.</p>
+        <label>Nova data
+          <input type="date" value={rescheduleDate} required onChange={event=>{setRescheduleDate(event.target.value);setRescheduleSlot("");}}/>
+        </label>
+        <label>Novo horário
+          <select value={rescheduleSlot} required onChange={event=>setRescheduleSlot(event.target.value)}>
+            <option value="">Escolher horário</option>
+            {rescheduleSlots.filter(slot=>slot!==reschedulingAppointment.startsAt).map(slot=>
+              <option key={slot} value={slot}>{slot.slice(11,16)}</option>)}
+          </select>
+        </label>
+        {rescheduleLoading&&<p role="status">Buscando vagas…</p>}
+        {rescheduleError&&<p role="alert">{rescheduleError}</p>}
+        {!rescheduleLoading&&!rescheduleError&&rescheduleSlots.length===0&&<p>Nenhuma vaga disponível para esta data.</p>}
+        <div className="row">
+          <button className="button primary" type="submit" disabled={working||rescheduleLoading||!rescheduleSlot}>Confirmar remarcação</button>
+          <button className="button" type="button" onClick={()=>{setReschedulingId("");setRescheduleSlot("");}}>Cancelar</button>
+        </div>
+      </form>}
     </section>
   );
 }
