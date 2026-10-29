@@ -405,7 +405,11 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
   const startsAt = String(body.startsAt ?? "");
   const customerName = String(body.customerName ?? "").trim();
   const customerPhone = String(body.customerPhone ?? "").trim();
-  if (!tenantId || !serviceId || !professionalId || !startsAt || !customerName || !customerPhone) return json(env, { error: "Dados obrigatórios ausentes." }, 400);
+  const phoneDigits=customerPhone.replace(/\D/g,"");
+  if(![tenantId,serviceId,professionalId].every(id=>/^[A-Za-z0-9_-]{1,100}$/.test(id))||
+     customerName.length<2||customerName.length>100||phoneDigits.length<10||phoneDigits.length>15||
+     !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00$/.test(startsAt))
+    return json(env,{error:"Informe nome, telefone válido e horário."},400);
 
   const token = env.FIRESTORE_EMULATOR_HOST ? "" : await serviceAccessToken(env);
   const [tenant, service, professional] = await Promise.all([
@@ -443,7 +447,7 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
     {
       update: {
         name: docName(env, `tenants/${tenantId}/appointments/${appointmentId}`),
-        fields: fields({ appointmentId, tenantId, customerName, customerPhone, professionalId, serviceId, startsAt, endsAt, dateKey, startMinute, endMinute, priceSnapshotCents: price, durationSnapshotMin: duration, status: "pending", createdAt: now, updatedAt: now }),
+        fields: fields({ appointmentId, tenantId, customerName, customerPhone:phoneDigits, professionalId, serviceId, startsAt, endsAt, dateKey, startMinute, endMinute, priceSnapshotCents: price, durationSnapshotMin: duration, status: "pending", createdAt: now, updatedAt: now }),
       },
       currentDocument: { exists: false },
     },
@@ -473,7 +477,7 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
     return json(env, { error: "Não foi possível criar o agendamento." }, 500);
   }
 
-  return json(env, { appointment: { id: appointmentId, tenantId, customerName, customerPhone, professionalId, serviceId, startsAt, endsAt, priceSnapshotCents: price, durationSnapshotMin: duration, status: "pending", createdAt: now, updatedAt: now } }, 201);
+  return json(env, { appointment: { id: appointmentId, tenantId, customerName, customerPhone:phoneDigits, professionalId, serviceId, startsAt, endsAt, priceSnapshotCents: price, durationSnapshotMin: duration, status: "pending", createdAt: now, updatedAt: now } }, 201);
 }
 
 /** Manual plan assignment only. Never accepts a caller-supplied actorId or price. */

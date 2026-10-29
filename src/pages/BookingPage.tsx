@@ -30,27 +30,30 @@ export function BookingPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
+  const [submitting,setSubmitting]=useState(false);
+  const [loadError,setLoadError]=useState("");
+  const [loaded,setLoaded]=useState(false);
 
-  async function reloadAppointments(tenantId: string) {
-    setAppointments(await repository.listAppointments(tenantId));
-  }
-
-  useEffect(() => {
-    resolveTenant(repository, tenantSlug).then(async (resolved) => {
-      if (!resolved) return;
-      setTenant(resolved);
-      const [s, p, a] = await Promise.all([
-        repository.listServices(resolved.id),
-        repository.listProfessionals(resolved.id),
-        repository.listAppointments(resolved.id).catch(() => []),
+  useEffect(()=>{
+    let active=true;
+    setLoaded(false);setLoadError("");setTenant(null);setServices([]);setProfessionals([]);setAppointments([]);
+    setServiceId("");setProfessionalId("");setSlot("");setAvailable([]);
+    resolveTenant(repository,tenantSlug).then(async resolved=>{
+      if(!active)return;
+      if(!resolved){setLoaded(true);return;}
+      const [s,p,a]=await Promise.all([
+        repository.listServices(resolved.id),repository.listProfessionals(resolved.id),
+        demoModeEnabled()?repository.listAppointments(resolved.id):Promise.resolve([]),
       ]);
-      setServices(s);
-      setProfessionals(p);
-      setAppointments(a);
-      if (s[0]) setServiceId(s[0].id);
-      if (p[0]) setProfessionalId(p[0].id);
+      if(!active)return;
+      setTenant(resolved);setServices(s);setProfessionals(p);setAppointments(a);
+      setServiceId(s[0]?.id??"");setProfessionalId(p[0]?.id??"");
+      setLoaded(true);
+    }).catch(error=>{
+      if(active){setLoadError(error instanceof Error?error.message:"Falha ao carregar o studio.");setLoaded(true);}
     });
-  }, [tenantSlug]);
+    return()=>{active=false;};
+  },[tenantSlug]);
 
   const service = services.find((item) => item.id === serviceId);
   const eligibleProfessionals = professionals.filter((item) => item.serviceIds.includes(serviceId));
@@ -84,21 +87,27 @@ export function BookingPage() {
       setMessage("Preencha os dados e selecione um horário.");
       return;
     }
-    if (demoModeEnabled()) {
-      setMessage("Demo local é somente visual. Para confirmar booking real, use Firebase + Booking Worker/emulators.");
+    if(demoModeEnabled()){
+      setMessage("Demonstração somente visual. Para gravar reserva, configure Firebase e Booking Worker.");
       return;
     }
+    if(submitting)return;
+    setSubmitting(true);setMessage("");
     try {
       await createProtectedBooking({ tenant, service, professionalId: professional.id, startsAt: slot, customerName: name.trim(), customerPhone: phone.trim() });
-      await reloadAppointments(tenant.id).catch(() => undefined);
-      setMessage("Agendamento criado com validação confiável.");
-      setSlot("");
+      setMessage("Agendamento confirmado para solicitação. A equipe poderá validar seu atendimento.");
+      setSlot("");setName("");setPhone("");
+      const latest=await getProtectedAvailability({tenantId:tenant.id,serviceId:service.id,professionalId:professional.id,date})
+        .catch(()=>[]);
+      setAvailable(latest);
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível criar o agendamento.");
-    }
+    }finally{setSubmitting(false);}
   }
 
-  if (!tenant) return <section className="page">Carregando tenant…</section>;
+  if(!loaded)return <section className="page" role="status">Carregando studio…</section>;
+  if(loadError)return <section className="page" role="alert">{loadError}</section>;
+  if(!tenant)return <section className="page">Studio não encontrado ou indisponível.</section>;
 
   return (
     <TenantTheme tenant={tenant}>
@@ -120,9 +129,11 @@ export function BookingPage() {
             <div className="slot-grid">
             {available.map((item) => <button type="button" key={item} className={slot === item ? "slot selected" : "slot"} onClick={() => setSlot(item)}>{item.split("T")[1].slice(0,5)}</button>)}
           </div></fieldset>
-          <label>Nome<input value={name} onChange={(e) => setName(e.target.value)} /></label>
-          <label>Telefone<input value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-          <button className="button primary" type="submit">Confirmar agendamento</button>
+          <label>Nome<input required minLength={2} maxLength={100} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <label>Telefone<input required type="tel" inputMode="tel" autoComplete="tel" minLength={10} maxLength={22} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
+          <button className="button primary" type="submit" disabled={submitting||slotsLoading||!slot}>
+            {submitting?"Confirmando…":"Solicitar agendamento"}
+          </button>
         </form>
         {message && <div className="callout">{message}</div>}
         <Link to={`/app/${tenant.slug}`}>Ir para o painel →</Link>
