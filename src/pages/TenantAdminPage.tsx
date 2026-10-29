@@ -241,6 +241,33 @@ export function TenantAdminPage() {
     finally{setWorking(false);}
   }
 
+  async function exportCsv(){
+    if(!tenant||!user||working)return;
+    setWorking(true);setOperationError("");setFeedback("");
+    try{
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!base)throw new Error("Worker não configurado.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/admin/exports/appointments`,{
+        method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:tenant.id}),
+      });
+      if(!response.ok){
+        const data=await response.json().catch(()=>({})) as {error?:string};
+        throw new Error(data.error??"Não foi possível exportar.");
+      }
+      const blob=await response.blob();
+      const url=URL.createObjectURL(blob);
+      try{
+        const a=document.createElement("a");
+        a.href=url;
+        a.download=`manicure-${tenant.id}-appointments.csv`;
+        document.body.appendChild(a);a.click();a.remove();
+      }finally{URL.revokeObjectURL(url);}
+      setFeedback("CSV exportado com auditoria. Proteja os dados pessoais contidos no arquivo.");
+    }catch(error){setOperationError(error instanceof Error?error.message:"Falha de rede.");}
+    finally{setWorking(false);}
+  }
+
   async function addProfessional(event: React.FormEvent) {
     event.preventDefault();
     if (!tenant || !user || working) return;
@@ -517,6 +544,13 @@ export function TenantAdminPage() {
       {!evaluate(tenant,"services.manage").allowed && <p>Cadastro bloqueado pelo estado comercial ou configuração deste tenant.</p>}
       {feedback && <p role="status">{feedback}</p>}
       {operationError && <p role="alert">{operationError}</p>}
+      <div className="row between">
+        <h2>Exportação de agendamentos</h2>
+        <button className="button" type="button" onClick={()=>void exportCsv()} disabled={working}>
+          Exportar CSV privado
+        </button>
+      </div>
+      <p>Exportação somente para equipe autorizada, registrada no log da plataforma. Não compartilhe o CSV publicamente.</p>
       <h2>Histórico de clientes</h2>
       <p>Registros calculados a partir dos agendamentos deste tenant. Nenhum dado é publicado para visitantes.</p>
       <label>Buscar nome ou telefone
