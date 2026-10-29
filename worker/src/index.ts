@@ -221,6 +221,107 @@ function validWindow(tenant:FireDoc,start:string) {
   return Number.isFinite(gapMinutes) && gapMinutes >= minLeadMinutes
     && gapMinutes <= bookingHorizonDays*1440;
 }
+type DailyHours = {closed:boolean;startMinute:number;endMinute:number;breakStartMinute:number;breakEndMinute:number};
+const DEFAULT_HOURS:DailyHours={closed:false,startMinute:540,endMinute:1080,breakStartMinute:720,breakEndMinute:780};
+function dayKey(date:string):string{return String(new Date(`${date}T12:00:00Z`).getUTCDay());}
+function scheduleFor(professional:FireDoc,date:string):DailyHours {
+  const entry=asRecord(asRecord(professional.fields?.weeklyHours)[dayKey(date)]);
+  if(!Object.keys(entry).length)return DEFAULT_HOURS;
+  return {
+    closed:entry.closed?.booleanValue===true,
+    startMinute:Number(entry.startMinute?.integerValue ?? DEFAULT_HOURS.startMinute),
+    endMinute:Number(entry.endMinute?.integerValue ?? DEFAULT_HOURS.endMinute),
+    breakStartMinute:Number(entry.breakStartMinute?.integerValue ?? DEFAULT_HOURS.breakStartMinute),
+    breakEndMinute:Number(entry.breakEndMinute?.integerValue ?? DEFAULT_HOURS.breakEndMinute),
+  };
+}
+function inWorkingHours(hours:DailyHours,start:number,end:number):boolean {
+  return !hours.closed && start>=hours.startMinute && end<=hours.endMinute &&
+    !(start<hours.breakEndMinute && end>hours.breakStartMinute);
+}
+function validateHours(h:DailyHours):boolean {
+  return typeof h.closed==="boolean" &&
+    [h.startMinute,h.endMinute,h.breakStartMinute,h.breakEndMinute].every(Number.isSafeInteger) &&
+    h.startMinute>=0 && h.startMinute<1440 && h.endMinute>h.startMinute && h.endMinute<=1440 &&
+    h.breakStartMinute>=h.startMinute && h.breakEndMinute<=h.endMinute &&
+    h.breakStartMinute<=h.breakEndMinute;
+}
+async function configureProfessionalHours(request:Request,env:Env):Promise<Response> {
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const professionalId=typeof data.professionalId==="string"?data.professionalId:"";
+  const weekday=data.weekday;
+  const closed=data.closed;
+  const hours:DailyHours={closed:closed===true,startMinute:Number(data.startMinute),endMinute:Number(data.endMinute),
+    breakStartMinute:Number(data.breakStartMinute),breakEndMinute:Number(data.breakEndMinute)};
+  if(![tenantId,professionalId].every(x=>/^[A-Za-z0-9_-]{1,100}$/.test(x))||
+      !Number.isSafeInteger(weekday)||Number(weekday)<0||Number(weekday)>6||typeof closed!=="boolean"||!validateHours(hours))
+    return json(env,{error:"Horário inválido; configure período e intervalo dentro do expediente."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Sem permissão para alterar a agenda."},403);
+  const [tenant,professional]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`tenants/${tenantId}/professionals/${professionalId}`),
+  ]);
+  if(!tenant||str(tenant,"status")!=="active"||!professional||!professional.updateTime)
+    return json(env,{error:"Tenant ou profissional indisponível."},404);
+  const dateToday=zonedNowString(settings(tenant).timezone).slice(0,10);
+  const allAppointments=await listDocuments(env,token,`tenants/${tenantId}/appointments`);
+  for(const appointment of allAppointments){
+    const start=str(appointment,"startsAt"),end=str(appointment,"endsAt");
+    if(str(appointment,"professionalId")!==professionalId||start.slice(0,10)<dateToday ||
+       dayKey(start.slice(0,10))!==String(weekday)||!["pending","confirmed","in_service"].includes(str(appointment,"status")))continue;
+    const first=localParts(start).startMinute,last=localParts(end).startMinute;
+    if(!inWorkingHours(hours,first,last))
+      return json(env,{error:"Há atendimento futuro que ficaria fora desse expediente. Reagende ou cancele antes."},409);
+  }
+  const weekly=asRecord(professional.fields?.weeklyHours);
+  const normalized:Record<string,unknown>={};
+  for(const [key,value] of Object.entries(weekly)){
+    const row=asRecord(value);
+    normalized[key]={
+      closed:row.closed?.booleanValue===true,
+      startMinute:Number(row.startMinute?.integerValue ?? DEFAULT_HOURS.startMinute),
+      endMinute:Number(row.endMinute?.integerValue ?? DEFAULT_HOURS.endMinute),
+      breakStartMinute:Number(row.breakStartMinute?.integerValue ?? DEFAULT_HOURS.breakStartMinute),
+      breakEndMinute:Number(row.breakEndMinute?.integerValue ?? DEFAULT_HOURS.breakEndMinute),
+    };
+  }
+  normalized[String(weekday)]=hours;
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const before=normalized[String(weekday)]===hours ? (
+    weekly[String(weekday)] ? {
+      closed:asRecord(weekly[String(weekday)]).closed?.booleanValue===true,
+      startMinute:Number(asRecord(weekly[String(weekday)]).startMinute?.integerValue ?? DEFAULT_HOURS.startMinute),
+      endMinute:Number(asRecord(weekly[String(weekday)]).endMinute?.integerValue ?? DEFAULT_HOURS.endMinute),
+      breakStartMinute:Number(asRecord(weekly[String(weekday)]).breakStartMinute?.integerValue ?? DEFAULT_HOURS.breakStartMinute),
+      breakEndMinute:Number(asRecord(weekly[String(weekday)]).breakEndMinute?.integerValue ?? DEFAULT_HOURS.breakEndMinute),
+    }:DEFAULT_HOURS
+  ):DEFAULT_HOURS;
+  const writes=[
+    {update:{name:docName(env,`tenants/${tenantId}/professionals/${professionalId}`),
+      fields:fields({weeklyHours:normalized,updatedAt:now})},
+      updateMask:{fieldPaths:["weeklyHours","updatedAt"]},
+      currentDocument:{updateTime:professional.updateTime}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,action:"professionals.schedule_update",
+        resourceType:"professional",resourceId:professionalId,before:{weekday,hours:before},after:{weekday,hours},
+        createdAt:now})},currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ABORTED/.test(detail))
+      return json(env,{error:"Agenda alterada simultaneamente. Atualize e tente novamente."},409);
+    console.error("Schedule update failed",response.status,detail.slice(0,200));
+    return json(env,{error:"Não foi possível salvar agenda."},500);
+  }
+  return json(env,{ok:true,professionalId,weekday,hours,auditId});
+}
+
 async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDoc,service:FireDoc,professional:FireDoc,date:string) {
   if(!validDate(date)) return [] as string[];
   if (!evaluate(asTenant(tenant,tenantId),"booking.create").allowed || !bool(service,"active")
@@ -236,12 +337,14 @@ async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDo
     listDocuments(env,token,`tenants/${tenantId}/scheduleBlocks`),
   ]);
   const busy=new Set(locks.filter(lock=>str(lock,"professionalId")===proId && str(lock,"dateKey")===date).map(lock=>int(lock,"minute")));
-  const intervals=blocks.filter(block=>str(block,"professionalId")===proId && str(block,"active")!=="false").map(block=>({
+  const intervals=blocks.filter(block=>str(block,"professionalId")===proId && block.fields?.active?.booleanValue!==false).map(block=>({
     start:str(block,"startsAt"),end:str(block,"endsAt"),
   })).filter(block=>block.start && block.end);
   const result:string[]=[];
-  for(let minutes=9*60;minutes+duration<=18*60;minutes+=30) {
-    if(minutes<13*60 && minutes+duration>12*60) continue;
+  const hours=scheduleFor(professional,date);
+  if(!validateHours(hours)||hours.closed)return result;
+  for(let minutes=hours.startMinute;minutes+duration<=hours.endMinute;minutes+=30) {
+    if(!inWorkingHours(hours,minutes,minutes+duration))continue;
     const start=`${date}T${String(Math.floor(minutes/60)).padStart(2,"0")}:${String(minutes%60).padStart(2,"0")}:00`;
     if(!validWindow(tenant,start))continue;
     const end=addMinutes(start,duration);
@@ -306,7 +409,7 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
   const slots=await availableSlots(env,token,tenantId,tenant,service,professional,dateKey);
   if(!slots.includes(startsAt)) return json(env,{error:"Horário indisponível. Atualize os horários."},409);
   const endMinute = startMinute + duration;
-  if (startMinute < 9 * 60 || endMinute > 18 * 60 || (startMinute < 13 * 60 && endMinute > 12 * 60)) return json(env, { error: "Horário fora da disponibilidade operacional." }, 409);
+  if (!inWorkingHours(scheduleFor(professional,dateKey),startMinute,endMinute)) return json(env,{error:"Fora do expediente da profissional."},409);
 
   const appointmentId = crypto.randomUUID();
   const endsAt = addMinutes(startsAt, duration);
@@ -766,6 +869,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
       try { return await manageTenantAdmin(request,env); }
       catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/professionals/schedule"){
+      try{return await configureProfessionalHours(request,env);}
+      catch(error){console.error("Schedule operation failed",error);return json(env,{error:"Erro ao configurar agenda."},500);}
     }
     if (request.method === "POST" && url.pathname === "/api/admin/professionals/activation") {
       try {return await setProfessionalActive(request,env);}
