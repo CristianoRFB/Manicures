@@ -6,22 +6,22 @@
 - Produção: **NÃO DEPLOYED**. PR ainda draft e sem merge na main.
 
 ## Medição técnica
-**32/42 = 76,2% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
+**34/42 = 81,0% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
 Não inclui navegador real, deploy, dados reais ou features comerciais DEFERRED.
 Ver `docs/PRE_PC_COMPLETENESS.md`.
 
 ## Evidência por módulo
 - M1 Global v01: PlanCatalog, EntitlementService, FeatureGating em frontend/Rules/Worker, quotas 1/3/10 profissionais e 0/2/5 admins, demo, trial e atribuição manual com auditoria.
 - M2 Agenda/serviços: CRUD de serviço com arquivamento, edição de profissional/serviços vinculados, expediente semanal, pausas, folgas, booking por slots e CAS, remarcação atômica, status/no-show e histórico preservado.
-- M3 UX: painel privado do tenant, agenda própria de profissional com filtro Rules, editor white-label, histórico de cliente para o admin e comprovante de solicitação sem URL com PII.
-- M4 Operação: membros admin adicionais com quotas, exportação CSV privada com auditoria, rejeição A×B, perfis de profissional ativos/inativos.
-- M5 Qualidade: CI TypeScript, unitários, Worker, Firestore/Auth Emulator, build e docs check; comandos `npm run test:pre-pc`.
+- M3 UX: painel privado do tenant, agenda profissional filtrada, autoatendimento de cliente verificado, cancelamento próprio, editor white-label e histórico admin.
+- M4 Operação: admins adicionais com quota, alerta de excedentes do downgrade, exportação CSV auditada, recuperação Firebase, equipe ativa/inativa e rejeição A×B.
+- M5 Qualidade: CI TypeScript, unitários, Worker, Auth/Firestore/Storage Emulator, build e docs check; comando `npm run test:pre-pc`.
 
 ## Incompleto (não afirmar pronto)
-- Cliente logado/autosserviço e histórico próprio (a visão admin já existe).
+- Reservas guest antigas não são reivindicadas automaticamente pelo cliente logado, por segurança.
 - Fluxo de convites com recuperação oficial e gestão completa dos demais papéis.
-- Tratamento e autorização completos de mídia persistente/portfólio, uploads e exportação ampliada.
-- Downgrade UX para excedentes ativos, trials e suporte administrativo completos.
+- Mídia: galeria persistente real e Storage Rules role-scoped implementadas; faltam política de EXIF, remoção autorizada, orçamento/egress e homologação de uploads (docs/MEDIA_POLICY.md).
+- Downgrade sem exclusão e aviso de excedente implementados; reconciliação de contadores/trial/suspensão avançados permanecem pendentes.
 - Browser real mobile/desktop, screenshots reais, QA visual e deploy/staging.
 
 ## Preservações

@@ -63,3 +63,20 @@ Interromper diante de quebra de tenant isolation, falha de Rules, quota excedida
 
 ## Reversão
 Sem deploy/merge automático. Em caso de falha, criar commits corretivos na branch. Dados do emulator são descartáveis; dados reais não podem ser alterados nem restaurados a partir de fixtures.
+
+## Fluxo de cliente autenticado
+- Em Firebase Auth Emulator, registrar conta fictícia, confirmar e-mail e atualizar token antes de `/customer/:tenantSlug`.
+- `/api/customers/enroll` deve criar exclusivamente membership customer no tenant correto, sem substituir roles existentes; não confiar no telefone como prova de propriedade.
+- Em `/:tenantSlug/book`, a identidade autenticada somente é vinculada quando o usuário tem membership customer ativa.
+- Cliente só lê seus agendamentos com filtro por customerId e só cancela o próprio; verificar liberação atômica de locks e negação A×B.
+- Reservas guest antigas permanecem sem vínculo e não podem ser assumidas pelo telefone.
+
+## Storage e portfólio
+- Testes em `src/test/storage.rules.test.ts` exigem Firebase Auth/Firestore/Storage Emulator no projeto sintético `manicure-demo`.
+- Verificar leitura de fotos realmente publicadas em `tenants/{tenantId}/public/portfolio` e uploads reais de até 5 MiB (JPEG/PNG/WebP).
+- Testar privacidade de `private`, `professionals/{id}`, `customers/{id}`, negações A×B e MIME não permitido.
+- Política: `docs/MEDIA_POLICY.md`. Nunca executar auto-delete nem dizer que a quota gratuita é ilimitada.
+
+## Downgrade
+- Essencial com duas profissionais ativas deve apresentar 2/1 e manter ambas históricas; novas ativações negadas no Worker.
+- O painel deve indicar também admins adicionais, mantendo teto 0/2/5.
