@@ -6,6 +6,7 @@ import { resolveTenant } from "../lib/tenantResolver";
 import { useAuth } from "../auth/AuthProvider";
 import { getLimit, evaluate } from "../commercial/entitlements";
 import { LoginPanel } from "../components/LoginPanel";
+import { StudioPortfolio } from "../components/StudioPortfolio";
 import { getProtectedAvailability } from "../data/bookingApi";
 import {parseBRLToCents} from "../domain/currency";
 
@@ -508,6 +509,7 @@ export function TenantAdminPage() {
         <div className="row"><button className="button primary" type="submit" disabled={working || !evaluate(tenant,"professionals.manage").allowed}>{working?"Salvando…":editingProId?"Salvar alterações":"Adicionar profissional"}</button>
         {editingProId&&<button type="button" className="button" onClick={resetProfessionalForm}>Cancelar edição</button>}</div>
       </form>
+      <StudioPortfolio tenantId={tenant.id} canManage/>
       <h2>Horários de atendimento por profissional</h2>
       <form className="form narrow" onSubmit={(event)=>void saveSchedule(event)}>
         <label>Profissional

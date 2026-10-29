@@ -4,6 +4,7 @@ import { repository } from "../data/repository";
 import type { Service, Tenant } from "../domain/types";
 import { resolveTenant } from "../lib/tenantResolver";
 import { TenantTheme } from "../components/TenantTheme";
+import { StudioPortfolio } from "../components/StudioPortfolio";
 
 export function TenantPublicPage() {
   const { tenantSlug } = useParams();
@@ -64,6 +65,7 @@ export function TenantPublicPage() {
             </article>
           ))}
         </div>
+        <StudioPortfolio tenantId={tenant.id}/>
         <div className="row">
           {services.length>0&&<Link className="button primary" to={`/${tenant.slug}/book`}>Agendar agora</Link>}
           <Link className="button" to={`/customer/${tenant.slug}`}>Minha agenda</Link>
