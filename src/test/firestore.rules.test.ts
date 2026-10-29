@@ -134,6 +134,13 @@ describe("tenant isolation and RBAC", () => {
     }));
   });
 
+  it("só Worker pode criar ou cancelar bloqueio de agenda",async()=>{
+    const db=env.authenticatedContext("ownerA").firestore();
+    await assertFails(setDoc(doc(db,"tenants/a/scheduleBlocks/forjado"),{
+      tenantId:"a",professionalId:"p1",startsAt:"2026-11-03T15:00:00",
+      endsAt:"2026-11-03T16:00:00",active:true,
+    }));
+  });
   it("tenant suspenso bloqueia público e membership do tenant", async () => {
     await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "tenants/a"), { slug:"a", name:"A", status:"suspended", kind:"demo" }));
     const publicDb = env.unauthenticatedContext().firestore();

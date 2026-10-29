@@ -306,6 +306,40 @@ describe("Trusted commercial and professional writes",()=>{
     const stored=(await getFirestore(adminApp).doc(`tenants/a/appointments/${id}`).get()).data();
     expect(stored?.startsAt).toBe("2026-11-03T14:00:00");
   });
+  async function createBlock(uid="ownerA",extra:Record<string,unknown>={}){
+    return worker.fetch(new Request("http://worker.local/api/admin/schedule-blocks/create",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId:"a",professionalId:"p1",
+        startsAt:"2026-11-03T15:00:00",endsAt:"2026-11-03T16:00:00",reason:"Folga teste",...extra}),
+    }),env());
+  }
+  async function cancelBlock(id:string,uid="ownerA"){
+    return worker.fetch(new Request("http://worker.local/api/admin/schedule-blocks/cancel",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId:"a",professionalId:"p1",blockId:id}),
+    }),env());
+  }
+  it("bloqueio de folga remove disponibilidade; cancelar reabre horário",async()=>{
+    const result=await createBlock();expect(result.status).toBe(201);
+    const {blockId}=await result.json() as {blockId:string};
+    const available=async()=>{
+      const response=await worker.fetch(new Request("http://worker.local/api/availability?tenantId=a&serviceId=s1&professionalId=p1&date=2026-11-03"),env());
+      return (await response.json() as {slots:string[]}).slots;
+    };
+    expect(await available()).not.toContain("2026-11-03T15:00:00");
+    expect((await book("a","2026-11-03T15:00:00")).status).toBe(409);
+    expect((await cancelBlock(blockId)).status).toBe(200);
+    expect(await available()).toContain("2026-11-03T15:00:00");
+    expect((await book("a","2026-11-03T15:00:00")).status).toBe(201);
+    const logs=await getFirestore(adminApp).collection("tenants/a/auditLogs").get();
+    expect(logs.size).toBe(2);
+  });
+  it("folga sobre reserva existente é negada; outro tenant não pode bloquear",async()=>{
+    expect((await book("a","2026-11-03T15:00:00")).status).toBe(201);
+    expect((await createBlock()).status).toBe(409);
+    expect((await createBlock("ownerB")).status).toBe(403);
+    expect((await createBlock("ownerA",{endsAt:"2026-11-02T12:00:00"})).status).toBe(400);
+  });
   it("Pro 3: contador atômico barra criação acima do limite",async()=>{
     expect((await create("a","ownerA","Segunda manicure")).status).toBe(201);
     expect((await create("a","ownerA","Terceira manicure")).status).toBe(201);
