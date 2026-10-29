@@ -1039,6 +1039,62 @@ async function manageBlock(request:Request,env:Env,action:"create"|"cancel"):Pro
   return json(env,{ok:true,blockId:resourceId,action,auditId},action==="create"?201:200);
 }
 
+/** Tenant branding is persistent business data, never a per-plan security gate. */
+async function updateTenantBranding(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const name=typeof data.name==="string"?data.name.trim():"";
+  const branding=typeof data.branding==="object"&&data.branding!==null&&!Array.isArray(data.branding)
+    ? data.branding as Record<string,unknown>:null;
+  const contact=typeof data.contact==="object"&&data.contact!==null&&!Array.isArray(data.contact)
+    ? data.contact as Record<string,unknown>:null;
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId)||name.length<2||name.length>100||!branding||!contact)
+    return json(env,{error:"Dados de branding inválidos."},400);
+  const primary=typeof branding.primary==="string"?branding.primary:"";
+  const accent=typeof branding.accent==="string"?branding.accent:"";
+  const background=typeof branding.background==="string"?branding.background:"";
+  const logoText=typeof branding.logoText==="string"?branding.logoText.trim():"";
+  const whatsapp=typeof contact.whatsapp==="string"?contact.whatsapp.replace(/\D/g,""):"";
+  const instagram=typeof contact.instagram==="string"?contact.instagram.trim().replace(/^@/,""):"";
+  if(![primary,accent,background].every(v=>/^#[0-9a-fA-F]{6}$/.test(v))||
+    logoText.length<1||logoText.length>5||!(whatsapp===""||whatsapp.length>=10&&whatsapp.length<=15)||
+    !(instagram===""||/^[A-Za-z0-9._]{1,30}$/.test(instagram)))
+    return json(env,{error:"Cores hexadecimais, logo ou contatos inválidos."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor || !["tenant_owner","platform_owner"].includes(actor.actorRole))
+    return json(env,{error:"Somente proprietário pode atualizar identidade visual."},403);
+  const tenant=await getDocument(env,token,`tenants/${tenantId}`);
+  if(!tenant||!tenant.updateTime)return json(env,{error:"Tenant não encontrado."},404);
+  const beforeBrand=asRecord(tenant.fields?.branding);
+  const beforeContact=asRecord(tenant.fields?.contact);
+  const before={name:str(tenant,"name"),branding:{
+    primary:beforeBrand.primary?.stringValue??"",accent:beforeBrand.accent?.stringValue??"",
+    background:beforeBrand.background?.stringValue??"",logoText:beforeBrand.logoText?.stringValue??"",
+  },contact:{whatsapp:beforeContact.whatsapp?.stringValue??"",instagram:beforeContact.instagram?.stringValue??""}};
+  const after={name,branding:{primary,accent,background,logoText},contact:{whatsapp,instagram}};
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const writes=[
+    {update:{name:docName(env,`tenants/${tenantId}`),fields:fields(after)},
+      updateMask:{fieldPaths:["name","branding","contact"]},
+      currentDocument:{updateTime:tenant.updateTime}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,action:"tenant.branding_update",
+        resourceType:"tenant",resourceId:tenantId,before,after,createdAt:now})},currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ABORTED/.test(detail))
+      return json(env,{error:"Configurações alteradas simultaneamente. Recarregue."},409);
+    console.error("Brand update failed",response.status,detail.slice(0,200));
+    return json(env,{error:"Falha ao salvar branding."},500);
+  }
+  return json(env,{ok:true,branding:after,auditId});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1059,6 +1115,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
       try { return await manageTenantAdmin(request,env); }
       catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/tenants/branding"){
+      try{return await updateTenantBranding(request,env);}
+      catch(error){console.error("Brand update failure",error);return json(env,{error:"Erro ao atualizar identidade visual."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/admin/schedule-blocks/create"){
       try{return await manageBlock(request,env,"create");}
