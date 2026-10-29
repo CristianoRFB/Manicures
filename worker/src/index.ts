@@ -1217,6 +1217,7 @@ async function verifiedCustomerIdentity(request:Request,env:Env):Promise<string|
   let uid:string;
   try{uid=await verifyFirebaseIdToken(raw,env);}
   catch{return null;}
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(uid))return null;
   try{
     const payload=JSON.parse(new TextDecoder().decode(parseBase64Url(raw.split(".")[1]))) as {email_verified?:boolean};
     return payload.email_verified===true ? uid : null;
