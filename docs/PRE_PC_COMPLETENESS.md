@@ -2,9 +2,9 @@
 
 ## Baseline e avanço mensurável
 - Baseline do turno anterior: **24/42 = 57,1%**.
-- Novo checkpoint: **31/42 = 73,8%** — avanço de **+7 entregas**, sem mudar o denominador.
+- Novo checkpoint: **32/42 = 76,2%** — avanço de **+8 entregas**, sem mudar o denominador.
 
-As sete entregas promovidas para CODE_COMPLETE **só permanecem assim com CI do SHA final verde**:
+As oito entregas promovidas para CODE_COMPLETE **só permanecem assim com CI do SHA final verde**:
 
 | Nº | Entrega | Código | Prova automatizada |
 |---:|---|---|---|
@@ -15,12 +15,13 @@ As sete entregas promovidas para CODE_COMPLETE **só permanecem assim com CI do 
 | 5 | Editor white-label persistente, tenant-owner only | Worker e admin | Worker emulator: permissão e preservação do plano |
 | 6 | Agenda profissional privada com ações limitadas | `src/pages/ProfessionalPage.tsx`, Repository, Rules | `src/test/firestore.rules.test.ts` (consulta própria e negação) |
 | 7 | Exportar agendamentos em CSV protegido e auditado | Worker e admin | Worker emulator: A×B, CSV formula, audit log |
+| 8 | Editar profissional e vínculos de serviços preservando reservas e quota | Worker e admin | Worker Emulator: CAS, serviço ativo, A×B, proibição de remoção com reserva futura |
 
 **Melhorias sem adicionar ao numerador:** Auth Emulator local com guardas e login testado, histórico agrupado para admin, comprovante in-session, validação de PII no booking, no-show após horário, responsividade CSS, correção de estados de rota.
 
-## Pendências ainda reais (11/42)
+## Pendências ainda reais (10/42)
 - Autoatendimento do cliente e histórico autenticado próprio.
-- Gestão de nome/vínculos do profissional, convites de identidade e papéis completos.
+- Gestão completa de convites de identidade, recuperação de acesso e demais papéis.
 - UX de downgrade excedente e suporte robusto para trials/suspensões.
 - Storage e mídia persistente: RBAC, uploads, lifecycle de portfólio, provas reais.
 - QA/browser mobile + screenshots reais e staging/deploy (external gates não equivalem a DONE).
