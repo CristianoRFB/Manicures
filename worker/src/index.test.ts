@@ -416,6 +416,19 @@ describe("Trusted commercial and professional writes",()=>{
     const appointment=(await getFirestore(adminApp).doc(`tenants/a/appointments/${body.appointment.id}`).get()).data();
     expect(appointment?.status).toBe("cancelled");
   });
+  it("não marca no-show antes do horário agendado",async()=>{
+    const created=await book("a","2026-11-03T14:00:00");
+    expect(created.status).toBe(201);
+    const id=(await created.json() as {appointment:{id:string}}).appointment.id;
+    const token=await signedToken("ownerA");
+    const update=async (status:string)=>worker.fetch(new Request("http://worker.local/api/admin/appointments/status",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${token}`},
+      body:JSON.stringify({tenantId:"a",appointmentId:id,status}),
+    }),env());
+    expect((await update("confirmed")).status).toBe(200);
+    expect((await update("no_show")).status).toBe(409);
+    expect((await getFirestore(adminApp).doc(`tenants/a/appointments/${id}`).get()).data()?.status).toBe("confirmed");
+  });
   it("status inválido e usuário de outro tenant são rejeitados",async()=>{
     const booking=await book("a","2026-11-03T14:00:00");
     expect(booking.status).toBe(201);

@@ -679,6 +679,8 @@ async function updateAppointmentStatus(request:Request,env:Env):Promise<Response
   const current=str(appointment,"status");
   if(!(TRANSITIONS[current] ?? []).includes(nextStatus))
     return json(env,{error:`Transição inválida: ${current} → ${nextStatus}.`},409);
+  if(nextStatus==="no_show" && str(appointment,"startsAt")>zonedNowString(settings(tenant).timezone))
+    return json(env,{error:"Não é possível marcar ausência antes do início do horário."},409);
 
   const writes:Array<Record<string,unknown>>=[];
   const now=new Date().toISOString();
