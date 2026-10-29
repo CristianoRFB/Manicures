@@ -26,7 +26,24 @@ npm run dev
 npx wrangler dev --config worker/wrangler.toml
 ```
 
-**STOP conhecido:** o Worker de administração valida tokens assinados via JWKS de produção; os ID tokens sem assinatura do Auth Emulator ainda não são suportados para execução interativa em tela. O teste automatizado do Worker usa tokens sintéticos ASSINADOS na suíte de integração e não comprova essa integração de login E2E. Resolver em estágio separado estritamente local antes de afirmar PASS_REAL no navegador; nunca aceitar unsigned tokens no Worker de produção.
+**Auth Emulator local:** agora há suporte real no Worker, testado em CI, mas ainda deve ser homologado visualmente. A exceção a tokens sem assinatura é restrita a `manicure-demo` com Firestore em `127.0.0.1:8080` e Auth em `127.0.0.1:9099`; fora desse modo local, tokens RS256 são obrigatórios.
+
+Copiar `worker/.dev.vars.example` para `worker/.dev.vars` em ambiente local, sem segredos reais. Ajustar `.env.local` com configuração fictícia correspondente:
+
+```dotenv
+VITE_FIREBASE_API_KEY=demo-key
+VITE_FIREBASE_AUTH_DOMAIN=manicure-demo.firebaseapp.com
+VITE_FIREBASE_PROJECT_ID=manicure-demo
+VITE_FIREBASE_STORAGE_BUCKET=manicure-demo.appspot.com
+VITE_FIREBASE_MESSAGING_SENDER_ID=123456789
+VITE_FIREBASE_APP_ID=demo-manicure-app
+VITE_USE_FIREBASE_EMULATORS=true
+VITE_DEMO_MODE=false
+VITE_BOOKING_API_BASE_URL=http://127.0.0.1:8787
+```
+
+**STOP se** algum script tentar Firebase de produção, credencial real ou se o navegador executar sem os emuladores locais.
+
 
 ## Matriz
 - Tenant A vs B: tentar trocar slug/tenantId e ler/escrever recursos privados deve ser rejeitado.
