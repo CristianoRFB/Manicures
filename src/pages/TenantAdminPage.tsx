@@ -23,6 +23,7 @@ export function TenantAdminPage() {
   const auditLogged = useRef(false);
   const [newProName, setNewProName] = useState("");
   const [newProServices, setNewProServices] = useState<string[]>([]);
+  const [editingServiceId,setEditingServiceId]=useState<string|null>(null);
   const [newServiceName, setNewServiceName] = useState("");
   const [newServiceDescription, setNewServiceDescription] = useState("");
   const [newServicePrice, setNewServicePrice] = useState("");
@@ -84,7 +85,7 @@ export function TenantAdminPage() {
     setProfessionals([]);
     Promise.all([
       repository.listAppointments(tenant.id),
-      repository.listServices(tenant.id),
+      repository.listServices(tenant.id,{includeInactive:true}),
       repository.listProfessionals(tenant.id,{includeInactive:true}),
     ]).then(([a,s,p])=>{
       if(!active)return;
@@ -168,6 +169,26 @@ export function TenantAdminPage() {
     finally{setWorking(false);}
   }
 
+  function editService(service:Service){
+    setEditingServiceId(service.id);setNewServiceName(service.name);
+    setNewServiceDescription(service.description);setNewServicePrice((service.priceCents/100).toFixed(2));
+    setNewServiceMinutes(String(service.durationMin));setFeedback("");setOperationError("");
+  }
+  function clearServiceForm(){
+    setEditingServiceId(null);setNewServiceName("");setNewServiceDescription("");setNewServicePrice("");setNewServiceMinutes("60");
+  }
+  async function toggleService(service:Service){
+    if(!tenant||working)return;
+    setWorking(true);setOperationError("");setFeedback("");
+    try{
+      await repository.updateService(tenant.id,service.id,{name:service.name,description:service.description,
+        priceCents:service.priceCents,durationMin:service.durationMin,active:!service.active});
+      await refresh();clearServiceForm();
+      setFeedback(service.active?"Serviço arquivado sem apagar histórico.":"Serviço reativado.");
+    }catch(err){setOperationError(err instanceof Error?err.message:"Falha no serviço.");}
+    finally{setWorking(false);}
+  }
+
   async function addService(event: React.FormEvent) {
     event.preventDefault();
     if (!tenant || working) return;
@@ -175,11 +196,17 @@ export function TenantAdminPage() {
     try {
       const priceCents=parseBRLToCents(newServicePrice);
       const durationMin=Number(newServiceMinutes);
-      await repository.createService(tenant.id,{
-        name:newServiceName,description:newServiceDescription,priceCents,durationMin,
-      });
-      await refresh();setNewServiceName("");setNewServiceDescription("");setNewServicePrice("");
-      setFeedback("Serviço cadastrado com sucesso.");
+      if(editingServiceId){
+        const existing=services.find(s=>s.id===editingServiceId);
+        if(!existing)throw new Error("Serviço não encontrado.");
+        await repository.updateService(tenant.id,editingServiceId,{
+          name:newServiceName,description:newServiceDescription,priceCents,durationMin,active:existing.active,
+        });
+      }else{
+        await repository.createService(tenant.id,{name:newServiceName,description:newServiceDescription,priceCents,durationMin});
+      }
+      await refresh();clearServiceForm();
+      setFeedback(editingServiceId?"Serviço atualizado; agendamentos anteriores preservam o preço original.":"Serviço cadastrado.");
     } catch(err) {setOperationError(err instanceof Error ? err.message : "Falha de rede.");}
     finally{setWorking(false);}
   }
@@ -209,16 +236,22 @@ export function TenantAdminPage() {
         {services.map(service=><article className="card" key={service.id}>
           <h3>{service.name}</h3>
           <p>{service.durationMin} min — {new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(service.priceCents/100)}</p>
+          <p>{service.active?"Ativo":"Arquivado"}</p>
+          <div className="row">
+            <button className="button" type="button" disabled={working} onClick={()=>editService(service)}>Editar</button>
+            <button className="button" type="button" disabled={working} onClick={()=>void toggleService(service)}>{service.active?"Arquivar":"Reativar"}</button>
+          </div>
         </article>)}
       </div>
       {!services.length && <p>Nenhum serviço ativo cadastrado.</p>}
       <form className="form narrow" onSubmit={(event)=>void addService(event)}>
-        <h3>Cadastrar serviço</h3>
+        <h3>{editingServiceId?"Editar serviço":"Cadastrar serviço"}</h3>
         <label>Nome do serviço<input value={newServiceName} minLength={2} maxLength={100} required onChange={e=>setNewServiceName(e.target.value)} /></label>
         <label>Descrição<input value={newServiceDescription} maxLength={400} onChange={e=>setNewServiceDescription(e.target.value)} /></label>
         <label>Preço em reais<input value={newServicePrice} inputMode="decimal" placeholder="49,90" required onChange={e=>setNewServicePrice(e.target.value)} /></label>
         <label>Duração (minutos)<input type="number" min={15} max={480} step={15} value={newServiceMinutes} required onChange={e=>setNewServiceMinutes(e.target.value)} /></label>
-        <button className="button primary" disabled={working || !evaluate(tenant,"services.manage").allowed} type="submit">{working?"Salvando…":"Adicionar serviço"}</button>
+        <div className="row"><button className="button primary" disabled={working || !evaluate(tenant,"services.manage").allowed} type="submit">{working?"Salvando…":editingServiceId?"Salvar alterações":"Adicionar serviço"}</button>
+        {editingServiceId&&<button className="button" type="button" onClick={clearServiceForm}>Cancelar edição</button>}</div>
       </form>
       <h2>Profissionais</h2>
       <div className="grid cards">{professionals.map(pro=><article className="card" key={pro.id}>

@@ -6,7 +6,8 @@ import { FirestoreRepository } from "./firestoreRepository";
 export interface Repository {
   getTenantBySlug(slug: string): Promise<Tenant | null>;
   listTenants(): Promise<Tenant[]>;
-  listServices(tenantId: string): Promise<Service[]>;
+  listServices(tenantId: string, options?: {includeInactive?: boolean}): Promise<Service[]>;
+  updateService(tenantId: string, serviceId: string, change: Pick<Service,"name"|"description"|"priceCents"|"durationMin"|"active">): Promise<void>;
   createService(tenantId: string, input: Pick<Service, "name" | "description" | "priceCents" | "durationMin">): Promise<Service>;
   listProfessionals(tenantId: string, options?: {includeInactive?: boolean}): Promise<Professional[]>;
   listAppointments(tenantId: string): Promise<Appointment[]>;
@@ -32,7 +33,8 @@ export class DemoRepository implements Repository {
     return [demoTenant, demoTenantB].find((tenant) => tenant.slug === slug) ?? null;
   }
   async listTenants() { return [demoTenant, demoTenantB]; }
-  async listServices(tenantId: string) { return demoServices.filter((item) => item.tenantId === tenantId); }
+  async listServices(tenantId: string, options?: {includeInactive?: boolean}) { return demoServices.filter((item) => item.tenantId === tenantId && (options?.includeInactive || item.active)); }
+  async updateService(): Promise<void> { throw new Error("Demo local não altera serviços."); }
   async createService(): Promise<Service> { throw new Error("Administração exige Firebase Auth/Firestore; demo local é só leitura."); }
   async listProfessionals(tenantId: string, options?: {includeInactive?: boolean}) { return demoProfessionals.filter((item) => item.tenantId === tenantId && (options?.includeInactive || item.active)); }
   async listAppointments(tenantId: string) { return readStoredAppointments().filter((item) => item.tenantId === tenantId); }

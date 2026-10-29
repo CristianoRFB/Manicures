@@ -118,6 +118,22 @@ describe("tenant isolation and RBAC", () => {
     await assertFails(setDoc(doc(db,"tenants/a/services/s4"),{tenantId:"a",name:"Bloqueado",priceCents:2000,durationMin:60,active:true}));
   });
 
+  it("admin pode atualizar e arquivar serviço preservando tenantId; cliente não pode",async()=>{
+    const owner=env.authenticatedContext("ownerA").firestore();
+    await assertSucceeds(setDoc(doc(owner,"tenants/a/services/s1"),{
+      tenantId:"a",name:"Novo preço",priceCents:2200,durationMin:60,active:false
+    }));
+    await assertFails(setDoc(doc(owner,"tenants/a/services/s1"),{
+      tenantId:"b",name:"Troca tenant",priceCents:2200,durationMin:60,active:true
+    }));
+    const publicDb=env.unauthenticatedContext().firestore();
+    await assertFails(getDoc(doc(publicDb,"tenants/a/services/s1")));
+    const customer=env.authenticatedContext("customerA").firestore();
+    await assertFails(setDoc(doc(customer,"tenants/a/services/s1"),{
+      tenantId:"a",name:"Fraude",priceCents:100,durationMin:60,active:true
+    }));
+  });
+
   it("tenant suspenso bloqueia público e membership do tenant", async () => {
     await env.withSecurityRulesDisabled(async (ctx) => setDoc(doc(ctx.firestore(), "tenants/a"), { slug:"a", name:"A", status:"suspended", kind:"demo" }));
     const publicDb = env.unauthenticatedContext().firestore();

@@ -1,4 +1,4 @@
-import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, getDocs, query, setDoc, updateDoc, where } from "firebase/firestore";
 import type { Appointment, AuditLog, Membership, Professional, Service, Tenant } from "../domain/types";
 import { getFirebaseServices } from "../lib/firebase";
 import type { Repository } from "./repository";
@@ -40,9 +40,21 @@ export class FirestoreRepository implements Repository {
     return {id:ref.id,...record};
   }
 
-  async listServices(tenantId: string): Promise<Service[]> {
-    const snapshot = await getDocs(query(collection(dbOrThrow(), "tenants", tenantId, "services"), where("active", "==", true)));
-    return snapshot.docs.map((item) => withId<Service>(item.id, item.data()));
+  async listServices(tenantId: string, options?: {includeInactive?: boolean}): Promise<Service[]> {
+    const collectionRef=collection(dbOrThrow(),"tenants",tenantId,"services");
+    const snapshot=await getDocs(options?.includeInactive ? collectionRef : query(collectionRef,where("active","==",true)));
+    return snapshot.docs.map(item=>withId<Service>(item.id,item.data()));
+  }
+
+  async updateService(tenantId:string,serviceId:string,change:Pick<Service,"name"|"description"|"priceCents"|"durationMin"|"active">):Promise<void>{
+    const name=change.name.trim();
+    if(name.length<2 || name.length>100 || !Number.isSafeInteger(change.priceCents) || change.priceCents<0 ||
+      !Number.isSafeInteger(change.durationMin) || change.durationMin<15 || change.durationMin>480 ||
+      typeof change.active!=="boolean") throw new Error("Dados de serviço inválidos.");
+    await updateDoc(doc(dbOrThrow(),"tenants",tenantId,"services",serviceId),{
+      tenantId,name,description:change.description.trim().slice(0,400),
+      priceCents:change.priceCents,durationMin:change.durationMin,active:change.active,
+    });
   }
 
   async listProfessionals(tenantId: string, options?: {includeInactive?: boolean}): Promise<Professional[]> {
