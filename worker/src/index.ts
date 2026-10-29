@@ -412,6 +412,16 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
     return json(env,{error:"Informe nome, telefone válido e horário."},400);
 
   const token = env.FIRESTORE_EMULATOR_HOST ? "" : await serviceAccessToken(env);
+  let authenticatedCustomerId:string|undefined;
+  // A bearer token is optional for guest booking but, when supplied, it must be valid
+  // and belong to an explicitly enrolled customer of this exact tenant.
+  const bearer=request.headers.get("authorization");
+  if(bearer){
+    authenticatedCustomerId=await verifiedCustomerIdentity(request,env)??undefined;
+    if(!authenticatedCustomerId)return json(env,{error:"Sessão de cliente inválida ou e-mail não confirmado."},401);
+    if(!await customerMembership(env,token,tenantId,authenticatedCustomerId))
+      return json(env,{error:"Perfil de cliente não vinculado a este studio."},403);
+  }
   const [tenant, service, professional] = await Promise.all([
     getDocument(env, token, `tenants/${tenantId}`),
     getDocument(env, token, `tenants/${tenantId}/services/${serviceId}`),
@@ -447,7 +457,7 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
     {
       update: {
         name: docName(env, `tenants/${tenantId}/appointments/${appointmentId}`),
-        fields: fields({ appointmentId, tenantId, customerName, customerPhone:phoneDigits, professionalId, serviceId, startsAt, endsAt, dateKey, startMinute, endMinute, priceSnapshotCents: price, durationSnapshotMin: duration, status: "pending", createdAt: now, updatedAt: now }),
+        fields: fields({ appointmentId, tenantId, ...(authenticatedCustomerId?{customerId:authenticatedCustomerId}:{}), customerName, customerPhone:phoneDigits, professionalId, serviceId, startsAt, endsAt, dateKey, startMinute, endMinute, priceSnapshotCents: price, durationSnapshotMin: duration, status: "pending", createdAt: now, updatedAt: now }),
       },
       currentDocument: { exists: false },
     },
@@ -477,7 +487,7 @@ async function createBooking(request: Request, env: Env): Promise<Response> {
     return json(env, { error: "Não foi possível criar o agendamento." }, 500);
   }
 
-  return json(env, { appointment: { id: appointmentId, tenantId, customerName, customerPhone:phoneDigits, professionalId, serviceId, startsAt, endsAt, priceSnapshotCents: price, durationSnapshotMin: duration, status: "pending", createdAt: now, updatedAt: now } }, 201);
+  return json(env, { appointment: { id: appointmentId, tenantId, ...(authenticatedCustomerId?{customerId:authenticatedCustomerId}:{}), customerName, customerPhone:phoneDigits, professionalId, serviceId, startsAt, endsAt, priceSnapshotCents: price, durationSnapshotMin: duration, status: "pending", createdAt: now, updatedAt: now } }, 201);
 }
 
 /** Manual plan assignment only. Never accepts a caller-supplied actorId or price. */
@@ -1198,11 +1208,136 @@ async function editProfessional(request:Request,env:Env):Promise<Response>{
   return json(env,{ok:true,professionalId,name,serviceIds,auditId});
 }
 
+
+/** Never trust a caller-supplied customerId or a typed phone number as ownership proof. */
+async function verifiedCustomerIdentity(request:Request,env:Env):Promise<string|null>{
+  const authorization=request.headers.get("authorization")??"";
+  if(!authorization.startsWith("Bearer "))return null;
+  const raw=authorization.slice(7);
+  let uid:string;
+  try{uid=await verifyFirebaseIdToken(raw,env);}
+  catch{return null;}
+  try{
+    const payload=JSON.parse(new TextDecoder().decode(parseBase64Url(raw.split(".")[1]))) as {email_verified?:boolean};
+    return payload.email_verified===true ? uid : null;
+  }catch{return null;}
+}
+async function customerMembership(env:Env,token:string,tenantId:string,uid:string):Promise<FireDoc|null>{
+  const membership=await getDocument(env,token,`memberships/${tenantId}_${uid}`);
+  if(!membership || str(membership,"tenantId")!==tenantId || str(membership,"userId")!==uid ||
+    str(membership,"role")!=="customer" || str(membership,"status")!=="active" ||
+    str(membership,"customerId")!==uid)return null;
+  return membership;
+}
+async function enrollCustomer(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId))return json(env,{error:"Tenant inválido."},400);
+  const uid=await verifiedCustomerIdentity(request,env);
+  if(!uid)return json(env,{error:"Faça login com e-mail confirmado antes de criar o perfil."},401);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const [tenant,existing]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`memberships/${tenantId}_${uid}`),
+  ]);
+  if(!tenant || str(tenant,"status")!=="active")return json(env,{error:"Studio indisponível."},404);
+  if(existing){
+    if(await customerMembership(env,token,tenantId,uid))
+      return json(env,{ok:true,customerId:uid,alreadyEnrolled:true});
+    return json(env,{error:"A conta já possui um vínculo diferente ou desativado neste studio."},409);
+  }
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const member={tenantId,userId:uid,role:"customer",status:"active",customerId:uid,createdAt:now};
+  const profile={tenantId,userId:uid,createdAt:now};
+  const writes=[
+    {update:{name:docName(env,`memberships/${tenantId}_${uid}`),fields:fields(member)},currentDocument:{exists:false}},
+    {update:{name:docName(env,`tenants/${tenantId}/customers/${uid}`),fields:fields(profile)},currentDocument:{exists:false}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:uid,actorRole:"customer",action:"customer.self_enroll",
+        resourceType:"customer",resourceId:uid,createdAt:now})},currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/ALREADY_EXISTS|FAILED_PRECONDITION|ABORTED/.test(detail))
+      return json(env,{error:"Vínculo já criado; recarregue o perfil."},409);
+    console.error("Customer enrollment failed",response.status,detail.slice(0,180));
+    return json(env,{error:"Não foi possível cadastrar o cliente."},500);
+  }
+  return json(env,{ok:true,customerId:uid},201);
+}
+async function cancelCustomerAppointment(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const appointmentId=typeof data.appointmentId==="string"?data.appointmentId:"";
+  if(![tenantId,appointmentId].every(id=>/^[A-Za-z0-9_-]{1,100}$/.test(id)))
+    return json(env,{error:"Parâmetros inválidos."},400);
+  const uid=await verifiedCustomerIdentity(request,env);
+  if(!uid)return json(env,{error:"Autenticação confirmada necessária."},401);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const [tenant,member,appointment]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    customerMembership(env,token,tenantId,uid),
+    getDocument(env,token,`tenants/${tenantId}/appointments/${appointmentId}`),
+  ]);
+  if(!tenant || str(tenant,"status")!=="active" || !member)
+    return json(env,{error:"Sem acesso a este studio."},403);
+  if(!appointment || str(appointment,"tenantId")!==tenantId ||
+    str(appointment,"customerId")!==uid || !appointment.updateTime)
+    return json(env,{error:"Agendamento não encontrado."},404);
+  if(!["pending","confirmed"].includes(str(appointment,"status")))
+    return json(env,{error:"Este atendimento não pode mais ser cancelado pelo cliente."},409);
+  const startsAt=str(appointment,"startsAt"),duration=int(appointment,"durationSnapshotMin");
+  if(!Number.isSafeInteger(duration)||duration<15||duration>480)return json(env,{error:"Duração histórica inválida."},409);
+  if(startsAt<=zonedNowString(settings(tenant).timezone))
+    return json(env,{error:"Horário já iniciado. Entre em contato com o studio."},409);
+  const {dateKey,startMinute}=localParts(startsAt);
+  const professionalId=str(appointment,"professionalId");
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(professionalId))
+    return json(env,{error:"Identificador histórico inválido."},409);
+  const lockIds=lockMinutes(startMinute,startMinute+duration).map(minute=>`${professionalId}_${dateKey}_${minute}`);
+  const existing=await Promise.all(lockIds.map(id=>getDocument(env,token,`tenants/${tenantId}/bookingLocks/${id}`)));
+  if(existing.some(lock=>!lock||str(lock,"appointmentId")!==appointmentId))
+    return json(env,{error:"Agenda inconsistente; entre em contato com o studio."},409);
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const writes:Array<Record<string,unknown>>=[
+    {update:{name:docName(env,`tenants/${tenantId}/appointments/${appointmentId}`),
+      fields:fields({status:"cancelled",updatedAt:now})},
+      updateMask:{fieldPaths:["status","updatedAt"]},currentDocument:{updateTime:appointment.updateTime}},
+    ...lockIds.map(id=>({delete:docName(env,`tenants/${tenantId}/bookingLocks/${id}`),currentDocument:{exists:true}})),
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:uid,actorRole:"customer",action:"appointments.customer_cancel",
+        resourceType:"appointment",resourceId:appointmentId,createdAt:now,
+        before:{status:str(appointment,"status")},after:{status:"cancelled"}})},currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ALREADY_EXISTS|ABORTED/.test(detail))
+      return json(env,{error:"Reserva modificada simultaneamente. Atualize a página."},409);
+    console.error("Customer cancellation failed",response.status,detail.slice(0,180));
+    return json(env,{error:"Falha ao cancelar reserva."},500);
+  }
+  return json(env,{ok:true,appointmentId,status:"cancelled"});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
     if (request.method === "GET" && url.pathname === "/health") return json(env, { ok: true, service: "saas-manicure-booking-api" });
+    if(request.method==="POST" && url.pathname==="/api/customers/enroll"){
+      try{return await enrollCustomer(request,env);}
+      catch(error){console.error("Customer enroll failed",error);return json(env,{error:"Falha ao cadastrar cliente."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/customers/appointments/cancel"){
+      try{return await cancelCustomerAppointment(request,env);}
+      catch(error){console.error("Customer cancellation failed",error);return json(env,{error:"Falha no cancelamento."},500);}
+    }
     if (request.method === "GET" && url.pathname === "/api/availability") {
       try {return await lookupAvailability(request,env);}
       catch(error) {console.error("Availability failed",error);return json(env,{error:"Disponibilidade indisponível."},500);}
