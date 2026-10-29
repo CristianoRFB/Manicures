@@ -322,7 +322,7 @@ async function configureProfessionalHours(request:Request,env:Env):Promise<Respo
   return json(env,{ok:true,professionalId,weekday,hours,auditId});
 }
 
-async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDoc,service:FireDoc,professional:FireDoc,date:string) {
+async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDoc,service:FireDoc,professional:FireDoc,date:string,excludeAppointmentId?:string) {
   if(!validDate(date)) return [] as string[];
   if (!evaluate(asTenant(tenant,tenantId),"booking.create").allowed || !bool(service,"active")
       || !bool(professional,"active")) return [] as string[];
@@ -336,7 +336,7 @@ async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDo
     listDocuments(env,token,`tenants/${tenantId}/bookingLocks`),
     listDocuments(env,token,`tenants/${tenantId}/scheduleBlocks`),
   ]);
-  const busy=new Set(locks.filter(lock=>str(lock,"professionalId")===proId && str(lock,"dateKey")===date).map(lock=>int(lock,"minute")));
+  const busy=new Set(locks.filter(lock=>str(lock,"professionalId")===proId && str(lock,"dateKey")===date && (!excludeAppointmentId || str(lock,"appointmentId")!==excludeAppointmentId)).map(lock=>int(lock,"minute")));
   const intervals=blocks.filter(block=>str(block,"professionalId")===proId && block.fields?.active?.booleanValue!==false).map(block=>({
     start:str(block,"startsAt"),end:str(block,"endsAt"),
   })).filter(block=>block.start && block.end);
@@ -853,6 +853,93 @@ async function setProfessionalActive(request:Request,env:Env):Promise<Response> 
   return json(env,{ok:true,professionalId,active,auditId});
 }
 
+async function rescheduleAppointment(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const appointmentId=typeof data.appointmentId==="string"?data.appointmentId:"";
+  const startsAt=typeof data.startsAt==="string"?data.startsAt:"";
+  if(![tenantId,appointmentId].every(value=>/^[A-Za-z0-9_-]{1,100}$/.test(value))||
+    !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00$/.test(startsAt))
+    return json(env,{error:"Parâmetros inválidos."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Sem permissão para remarcar."},403);
+  const [tenant,appointment]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`tenants/${tenantId}/appointments/${appointmentId}`),
+  ]);
+  if(!tenant||str(tenant,"status")!=="active"||!appointment||!appointment.updateTime||
+    str(appointment,"tenantId")!==tenantId)return json(env,{error:"Agendamento não encontrado ou tenant suspenso."},404);
+  if(!["pending","confirmed"].includes(str(appointment,"status")))
+    return json(env,{error:"Somente pendente ou confirmado pode ser remarcado."},409);
+  if(!evaluate(asTenant(tenant,tenantId),"booking.create").allowed)
+    return json(env,{error:"Plano não permite reagendamento neste estado."},403);
+  const serviceId=str(appointment,"serviceId"),professionalId=str(appointment,"professionalId");
+  if(![serviceId,professionalId].every(value=>/^[A-Za-z0-9_-]{1,100}$/.test(value)))
+    return json(env,{error:"Referência de serviço/profissional inválida."},409);
+  const [service,professional]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}/services/${serviceId}`),
+    getDocument(env,token,`tenants/${tenantId}/professionals/${professionalId}`),
+  ]);
+  if(!service||!professional||!bool(service,"active")||!bool(professional,"active"))
+    return json(env,{error:"Serviço ou profissional indisponível."},409);
+  const duration=int(appointment,"durationSnapshotMin");
+  if(!Number.isSafeInteger(duration)||duration<15||duration>480)
+    return json(env,{error:"Snapshot de duração inválido."},409);
+  const oldStart=str(appointment,"startsAt");
+  const old={...localParts(oldStart),duration};
+  const next=localParts(startsAt),endMinute=next.startMinute+duration;
+  const oldEnd=addMinutes(oldStart,duration),newEnd=addMinutes(startsAt,duration);
+  if(oldStart===startsAt)return json(env,{error:"Selecione um horário diferente."},409);
+  const availability=await availableSlots(env,token,tenantId,tenant,
+    {...service,fields:{...service.fields,durationMin:{integerValue:String(duration)}}},
+    professional,next.dateKey,appointmentId);
+  if(!availability.includes(startsAt))
+    return json(env,{error:"Novo horário indisponível."},409);
+  const oldIds=lockMinutes(old.startMinute,old.startMinute+duration).map(minute=>`${professionalId}_${old.dateKey}_${minute}`);
+  const newIds=lockMinutes(next.startMinute,endMinute).map(minute=>`${professionalId}_${next.dateKey}_${minute}`);
+  const oldSet=new Set(oldIds),newSet=new Set(newIds);
+  const verifyIds=oldIds;
+  const held=await Promise.all(verifyIds.map(id=>getDocument(env,token,`tenants/${tenantId}/bookingLocks/${id}`)));
+  if(held.some(lock=>!lock||str(lock,"appointmentId")!==appointmentId))
+    return json(env,{error:"Inconsistência de locks da reserva original."},409);
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const writes:Array<Record<string,unknown>>=[
+    {update:{name:docName(env,`tenants/${tenantId}/appointments/${appointmentId}`),
+      fields:fields({startsAt,endsAt:newEnd,dateKey:next.dateKey,startMinute:next.startMinute,
+        endMinute,updatedAt:now})},
+      updateMask:{fieldPaths:["startsAt","endsAt","dateKey","startMinute","endMinute","updatedAt"]},
+      currentDocument:{updateTime:appointment.updateTime}},
+  ];
+  for(const id of oldIds){
+    if(newSet.has(id))continue;
+    writes.push({delete:docName(env,`tenants/${tenantId}/bookingLocks/${id}`),
+      currentDocument:{exists:true}});
+  }
+  for(const id of newIds){
+    if(oldSet.has(id))continue;
+    const minute=Number(id.split("_").pop());
+    writes.push({update:{name:docName(env,`tenants/${tenantId}/bookingLocks/${id}`),
+      fields:fields({tenantId,professionalId,appointmentId,dateKey:next.dateKey,minute,createdAt:now})},
+      currentDocument:{exists:false}});
+  }
+  writes.push({update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+    fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,action:"appointments.reschedule",
+      resourceType:"appointment",resourceId:appointmentId,before:{startsAt:oldStart,endsAt:oldEnd},
+      after:{startsAt,endsAt:newEnd},createdAt:now})},currentDocument:{exists:false}});
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ALREADY_EXISTS|ABORTED/.test(detail))
+      return json(env,{error:"Horário alterado por outra reserva. Selecione outro."},409);
+    console.error("Reschedule failed",response.status,detail.slice(0,200));
+    return json(env,{error:"Não foi possível remarcar."},500);
+  }
+  return json(env,{ok:true,id:appointmentId,startsAt,endsAt:newEnd,auditId});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -861,6 +948,10 @@ export default {
     if (request.method === "GET" && url.pathname === "/api/availability") {
       try {return await lookupAvailability(request,env);}
       catch(error) {console.error("Availability failed",error);return json(env,{error:"Disponibilidade indisponível."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/appointments/reschedule"){
+      try{return await rescheduleAppointment(request,env);}
+      catch(error){console.error("Reschedule failure",error);return json(env,{error:"Erro ao remarcar."},500);}
     }
     if (request.method === "POST" && url.pathname === "/api/admin/appointments/status") {
       try {return await updateAppointmentStatus(request,env);}
