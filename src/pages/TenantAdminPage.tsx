@@ -176,7 +176,7 @@ export function TenantAdminPage() {
       if(alive)setUsageOverview(payload);
     }).catch(()=>{if(alive)setUsageOverview(null);});
     return()=>{alive=false;};
-  },[tenant?.id,user?.uid,authorized,professionals.length]);
+  },[tenant?.id,user?.uid,authorized,professionals.filter(pro=>pro.active).length]);
 
   const selectedScheduleProfessional=professionals.find(pro=>pro.id===scheduleProId);
   useEffect(()=>{

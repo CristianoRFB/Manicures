@@ -201,6 +201,25 @@ describe("Trusted commercial and professional writes",()=>{
     expect((await cancelOwn("cliente1",id)).status).toBe(404);
     expect((await getFirestore(adminApp).doc(`tenants/a/appointments/${id}`).get()).data()?.customerId).toBeUndefined();
   });
+  async function usageFor(uid:string,tenantId="a"){
+    return worker.fetch(new Request("http://worker.local/api/admin/usage",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId}),
+    }),env());
+  }
+  it("mostra excedente de downgrade sem excluir dados ou permitir acesso do tenant B",async()=>{
+    const created=await create("a","ownerA","Segunda");
+    expect(created.status).toBe(201);
+    await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"essencial",subscriptionStatus:"active"}});
+    const view=await usageFor("ownerA");
+    expect(view.status).toBe(200);
+    const data=await view.json() as {usage:{professionals_active:number};limits:{professionals_active:number};exceeded:{professionals_active:boolean}};
+    expect(data.usage.professionals_active).toBe(2);
+    expect(data.limits.professionals_active).toBe(1);
+    expect(data.exceeded.professionals_active).toBe(true);
+    expect((await getFirestore(adminApp).collection("tenants/a/professionals").get()).size).toBe(2);
+    expect((await usageFor("ownerB")).status).toBe(403);
+  });
   it("Pro: limita a dois administradores adicionais, com auditoria",async()=>{
     expect((await manageAdmin("a","platform","admin1")).status).toBe(200);
     expect((await manageAdmin("a","platform","admin2")).status).toBe(200);
