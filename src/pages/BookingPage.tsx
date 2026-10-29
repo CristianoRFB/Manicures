@@ -19,6 +19,8 @@ export function BookingPage() {
   const { tenantSlug } = useParams();
   const {user}=useAuth();
   const [linkedCustomer,setLinkedCustomer]=useState(false);
+  const [checkingCustomer,setCheckingCustomer]=useState(false);
+  const [customerLinkError,setCustomerLinkError]=useState("");
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [services, setServices] = useState<Service[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
@@ -61,12 +63,14 @@ export function BookingPage() {
 
   useEffect(()=>{
     let live=true;
-    setLinkedCustomer(false);
+    setLinkedCustomer(false);setCheckingCustomer(false);setCustomerLinkError("");
     if(!tenant||!user||!user.emailVerified||demoModeEnabled())return;
+    setCheckingCustomer(true);
     repository.getMembership(tenant.id,user.uid).then(member=>{
       if(live)setLinkedCustomer(Boolean(member?.status==="active"&&member.role==="customer"
         &&member.customerId===user.uid&&member.tenantId===tenant.id));
-    }).catch(()=>{if(live)setLinkedCustomer(false);});
+    }).catch(()=>{if(live)setCustomerLinkError("Não foi possível verificar o vínculo da sua conta. Reabra a área do cliente.");})
+      .finally(()=>{if(live)setCheckingCustomer(false);});
     return()=>{live=false;};
   },[tenant?.id,user?.uid]);
 
@@ -106,7 +110,7 @@ export function BookingPage() {
       setMessage("Demonstração somente visual. Para gravar reserva, configure Firebase e Booking Worker.");
       return;
     }
-    if(submitting)return;
+    if(submitting||checkingCustomer||customerLinkError)return;
     setSubmitting(true);setMessage("");setReceipt(null);
     try {
       const saved=await createProtectedBooking({ tenant, service, professionalId: professional.id,
@@ -134,6 +138,8 @@ export function BookingPage() {
         {tenant.kind === "demo" && <div className="badge">DEMONSTRAÇÃO</div>}
         <h1>Novo agendamento</h1>
         <p>{linkedCustomer?"Reserva vinculada à sua conta de cliente verificada.":"Reserva como visitante: ela não aparecerá no histórico de nenhuma conta sem vínculo autenticado."}</p>
+        {checkingCustomer&&<p role="status">Validando vínculo da sua conta…</p>}
+        {customerLinkError&&<p role="alert">{customerLinkError}</p>
         <Link to={`/customer/${tenant.slug}`}>Entrar, cadastrar ou ver meus horários</Link>
         <form className="form" onSubmit={submit}>
           <label>Serviço<select value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlot(""); }}>
@@ -152,7 +158,7 @@ export function BookingPage() {
           </div></fieldset>
           <label>Nome<input required minLength={2} maxLength={100} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} /></label>
           <label>Telefone<input required type="tel" inputMode="tel" autoComplete="tel" minLength={10} maxLength={22} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-          <button className="button primary" type="submit" disabled={submitting||slotsLoading||!slot}>
+          <button className="button primary" type="submit" disabled={submitting||slotsLoading||checkingCustomer||Boolean(customerLinkError)||!slot}>
             {submitting?"Confirmando…":"Solicitar agendamento"}
           </button>
         </form>
