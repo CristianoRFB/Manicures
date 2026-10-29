@@ -11,6 +11,7 @@ export interface Repository {
   createService(tenantId: string, input: Pick<Service, "name" | "description" | "priceCents" | "durationMin">): Promise<Service>;
   listProfessionals(tenantId: string, options?: {includeInactive?: boolean}): Promise<Professional[]>;
   listAppointments(tenantId: string): Promise<Appointment[]>;
+  listAppointmentsForProfessional(tenantId: string, professionalId: string): Promise<Appointment[]>;
   listScheduleBlocks(tenantId: string): Promise<ScheduleBlock[]>;
   getMembership(tenantId: string, userId: string): Promise<Membership | null>;
   isPlatformOwner(userId: string): Promise<boolean>;
@@ -39,6 +40,9 @@ export class DemoRepository implements Repository {
   async createService(): Promise<Service> { throw new Error("Administração exige Firebase Auth/Firestore; demo local é só leitura."); }
   async listProfessionals(tenantId: string, options?: {includeInactive?: boolean}) { return demoProfessionals.filter((item) => item.tenantId === tenantId && (options?.includeInactive || item.active)); }
   async listAppointments(tenantId: string) { return readStoredAppointments().filter((item) => item.tenantId === tenantId); }
+  async listAppointmentsForProfessional(tenantId:string,professionalId:string){
+    return readStoredAppointments().filter(item=>item.tenantId===tenantId&&item.professionalId===professionalId);
+  }
   async listScheduleBlocks():Promise<ScheduleBlock[]> {return [];} 
   async getMembership() { return null; }
   async isPlatformOwner() { return false; }

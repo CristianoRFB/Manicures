@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, it } from "vitest";
 import { initializeTestEnvironment, assertFails, assertSucceeds, type RulesTestEnvironment } from "@firebase/rules-unit-testing";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, query, setDoc, where } from "firebase/firestore";
 import fs from "node:fs";
 
 let env: RulesTestEnvironment;
@@ -56,6 +56,14 @@ describe("tenant isolation and RBAC", () => {
     await assertSucceeds(getDoc(doc(db, "tenants/a/appointments/own")));
     await assertFails(getDoc(doc(db, "tenants/a/appointments/other")));
     await assertFails(getDoc(doc(db, "tenants/b/appointments/b1")));
+  });
+
+  it("profissional só consulta sua agenda com filtro de professionalId",async()=>{
+    const db=env.authenticatedContext("proA").firestore();
+    const appointments=collection(db,"tenants/a/appointments");
+    await assertSucceeds(getDocs(query(appointments,where("professionalId","==","p1"))));
+    await assertFails(getDocs(appointments));
+    await assertFails(getDocs(query(collection(db,"tenants/b/appointments"),where("professionalId","==","p1"))));
   });
 
   it("customer não recebe acesso administrativo/privado por membership", async () => {
