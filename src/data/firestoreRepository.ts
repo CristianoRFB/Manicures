@@ -68,6 +68,12 @@ export class FirestoreRepository implements Repository {
     return snapshot.docs.map(item=>withId<ScheduleBlock>(item.id,item.data()));
   }
 
+  async listAppointmentsForCustomer(tenantId:string,customerId:string):Promise<Appointment[]>{
+    const appointments=collection(dbOrThrow(),"tenants",tenantId,"appointments");
+    const snapshot=await getDocs(query(appointments,where("customerId","==",customerId)));
+    return snapshot.docs.map(item=>withId<Appointment>(item.id,item.data()));
+  }
+
   async listAppointmentsForProfessional(tenantId:string,professionalId:string):Promise<Appointment[]>{
     const appointments=collection(dbOrThrow(),"tenants",tenantId,"appointments");
     const snapshot=await getDocs(query(appointments,where("professionalId","==",professionalId)));
