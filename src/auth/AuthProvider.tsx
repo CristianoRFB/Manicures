@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { createUserWithEmailAndPassword, onAuthStateChanged, reload, sendEmailVerification, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
+import { createUserWithEmailAndPassword, onAuthStateChanged, reload, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { getFirebaseServices } from "../lib/firebase";
 
 interface AuthContextValue {
@@ -10,6 +10,7 @@ interface AuthContextValue {
   registerCustomer: (email:string,password:string) => Promise<void>;
   sendVerificationEmail: () => Promise<void>;
   refreshVerifiedUser: () => Promise<boolean>;
+  requestPasswordReset: (email:string) => Promise<void>;
   logout: () => Promise<void>;
 }
 
@@ -55,6 +56,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await services.auth.currentUser.getIdToken(true);
       setUser(services.auth.currentUser);
       return services.auth.currentUser.emailVerified;
+    },
+    requestPasswordReset:async(email)=>{
+      if(!services)throw new Error("Firebase não configurado.");
+      const normalized=email.trim();
+      if(!normalized||!normalized.includes("@"))throw new Error("Informe o e-mail da conta.");
+      await sendPasswordResetEmail(services.auth,normalized);
     },
     logout: async () => {
       if (!services) return;
