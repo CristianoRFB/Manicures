@@ -90,10 +90,8 @@ service cloud.firestore {
 
       match /scheduleBlocks/{blockId} {
         allow read: if activeMember(tenantId) || isPlatformOwner();
-        allow create, update: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"])
-          || (tenantRole(tenantId, ["professional"]) && membership(tenantId).data.professionalId == request.resource.data.professionalId)
-          || isPlatformOwner();
-        allow delete: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"]) || isPlatformOwner();
+        // Only trusted Worker can check existing appointments and atomically audit changes.
+        allow create, update, delete: if false;
       }
 
       match /auditLogs/{logId} {

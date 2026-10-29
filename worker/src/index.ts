@@ -967,6 +967,78 @@ async function rescheduleAppointment(request:Request,env:Env):Promise<Response>{
   return json(env,{ok:true,id:appointmentId,startsAt,endsAt:newEnd,auditId});
 }
 
+function validLocalDateTime(value:string):boolean{
+  if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:00$/.test(value))return false;
+  const [date,time]=value.split("T");
+  if(!validDate(date))return false;
+  const [hour,minute]=time.split(":").map(Number);
+  return hour>=0&&hour<24&&minute>=0&&minute<60;
+}
+async function manageBlock(request:Request,env:Env,action:"create"|"cancel"):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const professionalId=typeof data.professionalId==="string"?data.professionalId:"";
+  const blockId=typeof data.blockId==="string"?data.blockId:"";
+  if(![tenantId,professionalId].every(id=>/^[A-Za-z0-9_-]{1,100}$/.test(id))||
+    (action==="cancel"&&!/^[A-Za-z0-9_-]{1,100}$/.test(blockId)))
+    return json(env,{error:"Identificador inválido."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Sem permissão para bloqueios de agenda."},403);
+  const tenant=await getDocument(env,token,`tenants/${tenantId}`);
+  if(!tenant||str(tenant,"status")!=="active")return json(env,{error:"Tenant indisponível."},404);
+  const professional=await getDocument(env,token,`tenants/${tenantId}/professionals/${professionalId}`);
+  if(!professional)return json(env,{error:"Profissional não pertence ao tenant."},404);
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const writes:Array<Record<string,unknown>>=[];
+  let resourceId:string,actionName:string,before:Record<string,unknown>={},after:Record<string,unknown>={};
+  if(action==="create"){
+    const startsAt=typeof data.startsAt==="string"?data.startsAt:"";
+    const endsAt=typeof data.endsAt==="string"?data.endsAt:"";
+    const reason=typeof data.reason==="string"?data.reason.trim():"";
+    const startMs=Date.parse(`${startsAt}Z`),endMs=Date.parse(`${endsAt}Z`);
+    if(!validLocalDateTime(startsAt)||!validLocalDateTime(endsAt)||endsAt<=startsAt||
+       !Number.isFinite(endMs-startMs)||endMs-startMs>30*86400_000||reason.length<3||reason.length>160)
+      return json(env,{error:"Folga inválida (máx. 30 dias, com motivo de 3–160 caracteres)."},400);
+    const appointments=await listDocuments(env,token,`tenants/${tenantId}/appointments`);
+    if(appointments.some(appt=>str(appt,"professionalId")===professionalId &&
+      ["pending","confirmed","in_service"].includes(str(appt,"status")) &&
+      str(appt,"startsAt")<endsAt && str(appt,"endsAt")>startsAt))
+      return json(env,{error:"Existe atendimento ativo nesse intervalo. Reagende ou cancele primeiro."},409);
+    resourceId=crypto.randomUUID();
+    actionName="schedule_blocks.create";
+    after={tenantId,professionalId,startsAt,endsAt,reason,active:true,createdAt:now,updatedAt:now};
+    writes.push({update:{name:docName(env,`tenants/${tenantId}/scheduleBlocks/${resourceId}`),
+      fields:fields(after)},currentDocument:{exists:false}});
+  }else{
+    const block=await getDocument(env,token,`tenants/${tenantId}/scheduleBlocks/${blockId}`);
+    if(!block||str(block,"professionalId")!==professionalId||!block.updateTime)
+      return json(env,{error:"Bloqueio não encontrado."},404);
+    if(block.fields?.active?.booleanValue===false)
+      return json(env,{error:"Bloqueio já cancelado."},409);
+    resourceId=blockId;actionName="schedule_blocks.cancel";
+    before={active:true,startsAt:str(block,"startsAt"),endsAt:str(block,"endsAt")};
+    after={active:false,updatedAt:now};
+    writes.push({update:{name:docName(env,`tenants/${tenantId}/scheduleBlocks/${blockId}`),
+      fields:fields(after)},updateMask:{fieldPaths:["active","updatedAt"]},
+      currentDocument:{updateTime:block.updateTime}});
+  }
+  writes.push({update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+    fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,action:actionName,
+      resourceType:"scheduleBlock",resourceId,before,after,createdAt:now})},currentDocument:{exists:false}});
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const error=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ABORTED/.test(error))
+      return json(env,{error:"Agenda atualizada simultaneamente. Recarregue."},409);
+    console.error("Schedule block mutation failed",response.status,error.slice(0,200));
+    return json(env,{error:"Não foi possível alterar bloqueio."},500);
+  }
+  return json(env,{ok:true,blockId:resourceId,action,auditId},action==="create"?201:200);
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -987,6 +1059,14 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
       try { return await manageTenantAdmin(request,env); }
       catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/schedule-blocks/create"){
+      try{return await manageBlock(request,env,"create");}
+      catch(error){console.error("Block creation failed",error);return json(env,{error:"Falha ao criar bloqueio."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/schedule-blocks/cancel"){
+      try{return await manageBlock(request,env,"cancel");}
+      catch(error){console.error("Block cancellation failed",error);return json(env,{error:"Falha ao cancelar bloqueio."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/admin/professionals/schedule"){
       try{return await configureProfessionalHours(request,env);}
