@@ -8,6 +8,7 @@ interface Env {
   ALLOWED_ORIGIN?: string;
   FIREBASE_AUTH_PROJECT_ID?: string;
   FIRESTORE_EMULATOR_HOST?: string;
+  FIREBASE_AUTH_EMULATOR_HOST?: string;
 }
 
 type FireValue = { stringValue?: string; integerValue?: string; booleanValue?: boolean; mapValue?: { fields: Record<string, FireValue> }; arrayValue?: { values: FireValue[] } };
@@ -129,6 +130,28 @@ async function verifyFirebaseIdToken(raw: string, env: Env): Promise<string> {
   };
   const project = env.FIREBASE_AUTH_PROJECT_ID ?? env.FIREBASE_PROJECT_ID;
   const now = Math.floor(Date.now() / 1000);
+  // Local-only Auth Emulator support. Production path always requires a signed RS256 JWT.
+  const emulatorMode = env.FIREBASE_PROJECT_ID === "manicure-demo"
+    && env.FIRESTORE_EMULATOR_HOST === "127.0.0.1:8080"
+    && env.FIREBASE_AUTH_EMULATOR_HOST === "127.0.0.1:9099";
+  if(emulatorMode && header.alg==="none" && parts[2]===""
+    && payload.aud === "manicure-demo"
+    && payload.iss === "https://securetoken.google.com/manicure-demo"
+    && payload.sub && payload.sub.length<=128
+    && payload.exp && payload.exp>now && payload.iat && payload.iat<=now &&
+    payload.auth_time && payload.auth_time<=now){
+    // The emulator is the trust boundary. An unsigned, hand-crafted JWT without an
+    // active corresponding emulator session is rejected by the lookup endpoint.
+    const result=await fetch(
+      "http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:lookup?key=demo-key",{
+        method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({idToken:raw}),
+      });
+    if(!result.ok)throw new Error("Sessão do Auth Emulator inválida.");
+    const response=await result.json() as {users?:Array<{localId:string;disabled?:boolean}>};
+    if(response.users?.length!==1 || response.users[0].localId!==payload.sub || response.users[0].disabled)
+      throw new Error("Conta do Auth Emulator inválida.");
+    return payload.sub;
+  }
   if (header.alg !== "RS256" || !header.kid ||
       payload.aud !== project || payload.iss !== `https://securetoken.google.com/${project}` ||
       !payload.sub || payload.sub.length > 128 ||
