@@ -26,6 +26,12 @@ export function TenantPublicPage() {
     return()=>{live=false;};
   },[tenantSlug]);
 
+  useEffect(()=>{
+    if(!tenant)return;
+    const previous=document.title;
+    document.title=`${tenant.name} | Agendamento`;
+    return()=>{document.title=previous;};
+  },[tenant?.id,tenant?.name]);
   if (tenant === undefined) return <section className="page" role="status">Carregando studio…</section>;
   if(error)return <section className="page" role="alert">{error}</section>;
   if (!tenant) return <section className="page"><h1>Tenant não encontrado</h1></section>;
@@ -42,6 +48,12 @@ export function TenantPublicPage() {
           </div>
         </div>
         {services.length===0&&<p>Nenhum serviço ativo cadastrado no momento.</p>}
+        <div className="row">
+          {tenant.contact.whatsapp && <a className="button" target="_blank" rel="noopener noreferrer"
+            href={`https://wa.me/${tenant.contact.whatsapp.replace(/\D/g,"")}`}>WhatsApp do studio</a>}
+          {tenant.contact.instagram && <a className="button" target="_blank" rel="noopener noreferrer"
+            href={`https://www.instagram.com/${encodeURIComponent(tenant.contact.instagram.replace(/^@/,""))}/`}>Instagram do studio</a>}
+        </div>
         <div className="grid cards">
           {services.map((service) => (
             <article className="card" key={service.id}>
