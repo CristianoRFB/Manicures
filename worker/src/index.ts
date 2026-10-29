@@ -1139,6 +1139,65 @@ async function exportTenantAppointments(request:Request,env:Env):Promise<Respons
   }});
 }
 
+async function editProfessional(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const professionalId=typeof data.professionalId==="string"?data.professionalId:"";
+  const name=typeof data.name==="string"?data.name.trim():"";
+  const serviceIds=Array.isArray(data.serviceIds)&&data.serviceIds.every(id=>typeof id==="string")
+    ? data.serviceIds as string[] : [];
+  if(![tenantId,professionalId].every(id=>/^[A-Za-z0-9_-]{1,100}$/.test(id))||
+    name.length<2||name.length>100||serviceIds.length>40||
+    serviceIds.some(id=>!/^[A-Za-z0-9_-]{1,100}$/.test(id))||
+    new Set(serviceIds).size!==serviceIds.length)
+    return json(env,{error:"Dados de profissional inválidos."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Sem permissão para editar profissional."},403);
+  const [tenant,pro]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`tenants/${tenantId}/professionals/${professionalId}`),
+  ]);
+  if(!tenant||str(tenant,"status")!=="active"||!pro||!pro.updateTime)
+    return json(env,{error:"Profissional não encontrada."},404);
+  const services=await Promise.all(serviceIds.map(id=>getDocument(env,token,`tenants/${tenantId}/services/${id}`)));
+  if(services.some(service=>!service||!bool(service,"active")))
+    return json(env,{error:"Serviços inválidos, inativos ou de outro tenant."},400);
+  const previous=arr(pro,"serviceIds"),removed=previous.filter(id=>!serviceIds.includes(id));
+  if(removed.length){
+    const nowLocal=zonedNowString(settings(tenant).timezone);
+    const upcoming=(await listDocuments(env,token,`tenants/${tenantId}/appointments`))
+      .some(appointment=>str(appointment,"professionalId")===professionalId
+        && removed.includes(str(appointment,"serviceId"))
+        && ["pending","confirmed","in_service"].includes(str(appointment,"status"))
+        && str(appointment,"startsAt")>=nowLocal);
+    if(upcoming)return json(env,{error:"Há atendimento futuro para um serviço removido. Reagende ou cancele antes."},409);
+  }
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const updates={name,serviceIds,updatedAt:now};
+  const writes=[
+    {update:{name:docName(env,`tenants/${tenantId}/professionals/${professionalId}`),
+      fields:fields(updates)},updateMask:{fieldPaths:["name","serviceIds","updatedAt"]},
+      currentDocument:{updateTime:pro.updateTime}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+        action:"professionals.edit",resourceType:"professional",resourceId:professionalId,
+        before:{name:str(pro,"name"),serviceIds:previous},after:updates,createdAt:now})},
+      currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ABORTED/.test(detail))
+      return json(env,{error:"Equipe alterada simultaneamente. Recarregue."},409);
+    console.error("Professional edit failed",response.status,detail.slice(0,200));
+    return json(env,{error:"Não foi possível editar profissional."},500);
+  }
+  return json(env,{ok:true,professionalId,name,serviceIds,auditId});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1183,6 +1242,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/professionals/activation") {
       try {return await setProfessionalActive(request,env);}
       catch(error){console.error("Professional active update failed",error);return json(env,{error:"Falha ao atualizar profissional."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/professionals/edit"){
+      try{return await editProfessional(request,env);}
+      catch(error){console.error("Professional edit error",error);return json(env,{error:"Falha ao editar profissional."},500);}
     }
     if (request.method === "POST" && url.pathname === "/api/admin/professionals") {
       try { return await createProfessional(request,env); }
