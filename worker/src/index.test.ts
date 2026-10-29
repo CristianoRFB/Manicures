@@ -362,6 +362,35 @@ describe("Trusted commercial and professional writes",()=>{
     expect((await saveBrand("ownerA",{branding:{primary:"javascript:alert(1)",accent:"#ffffff",background:"#ffffff",logoText:"ST"}})).status).toBe(400);
     expect((await saveBrand("ownerB")).status).toBe(403);
   });
+  async function exportAppointments(uid:string,tenantId="a"){
+    return worker.fetch(new Request("http://worker.local/api/admin/exports/appointments",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId}),
+    }),env());
+  }
+  it("exporta CSV privado com cabeçalhos, BOM e log sem dados pessoais",async()=>{
+    await getFirestore(adminApp).doc("tenants/a/appointments/formula").set({
+      tenantId:"a",professionalId:"p1",serviceId:"s1",startsAt:"2026-11-03T10:00:00",
+      endsAt:"2026-11-03T11:00:00",status:"completed",
+      customerName:"=HYPERLINK(\"https://unsafe\")",customerPhone:"5517999999999",
+      priceSnapshotCents:4000,durationSnapshotMin:60,
+    });
+    const result=await exportAppointments("ownerA");
+    expect(result.status).toBe(200);
+    expect(result.headers.get("content-type")).toContain("text/csv");
+    expect(result.headers.get("cache-control")).toBe("no-store");
+    const csv=await result.text();
+    expect(csv.startsWith("\uFEFF")).toBe(true);
+    expect(csv).toContain("customerName");
+    expect(csv).toContain("'=HYPERLINK");
+    const logs=await getFirestore(adminApp).collection("tenants/a/auditLogs").get();
+    expect(logs.size).toBe(1);
+    expect(logs.docs[0].data().recordCount).toBe(1);
+    expect(JSON.stringify(logs.docs[0].data())).not.toContain("5517999999999");
+  });
+  it("não exporta dados do Tenant B para owner A",async()=>{
+    expect((await exportAppointments("ownerA","b")).status).toBe(403);
+  });
   it("Pro 3: contador atômico barra criação acima do limite",async()=>{
     expect((await create("a","ownerA","Segunda manicure")).status).toBe(201);
     expect((await create("a","ownerA","Terceira manicure")).status).toBe(201);
