@@ -119,11 +119,11 @@ describe("Trusted commercial and professional writes",()=>{
     }) as typeof fetch);
   });
   afterAll(()=>{vi.unstubAllGlobals();});
-  async function signedToken(uid:string) {
+  async function signedToken(uid:string,verified=false) {
     const now=Math.floor(Date.now()/1000);
     const b64=(v:unknown)=>Buffer.from(JSON.stringify(v)).toString("base64url");
     const head=b64({alg:"RS256",kid:"test-kid"});
-    const claims=b64({iss:`https://securetoken.google.com/${projectId}`,aud:projectId,sub:uid,iat:now-10,auth_time:now-10,exp:now+600});
+    const claims=b64({iss:`https://securetoken.google.com/${projectId}`,aud:projectId,sub:uid,iat:now-10,auth_time:now-10,exp:now+600,email_verified:verified});
     const unsigned=`${head}.${claims}`;
     const sig=await crypto.subtle.sign("RSASSA-PKCS1-v1_5",privateKey,new TextEncoder().encode(unsigned));
     return `${unsigned}.${Buffer.from(sig).toString("base64url")}`;
@@ -142,6 +142,65 @@ describe("Trusted commercial and professional writes",()=>{
       body:JSON.stringify({tenantId,userId:targetUserId,status}),
     }),env());
   }
+
+  const customerRequest=async(path:string,uid:string,body:Record<string,unknown>,verified=true)=>{
+    return worker.fetch(new Request(`http://worker.local${path}`,{
+      method:"POST",
+      headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid,verified)}`},
+      body:JSON.stringify(body),
+    }),env());
+  };
+  const registerCustomer=(uid:string,tenantId="a",verified=true)=>customerRequest("/api/customers/enroll",uid,{tenantId},verified);
+  const cancelOwn=(uid:string,appointmentId:string,tenantId="a")=>
+    customerRequest("/api/customers/appointments/cancel",uid,{tenantId,appointmentId});
+  const customerBooking=async(uid:string,tenantId="a",startsAt="2026-11-03T14:00:00",additional:Record<string,unknown>={})=>
+    customerRequest("/api/bookings",uid,{tenantId,serviceId:"s1",professionalId:"p1",startsAt,
+      customerName:"Cliente",customerPhone:"5517999999999",...additional});
+  it("auto-cadastro exige e-mail confirmado, cria apenas papel customer e preserva membership de owner",async()=>{
+    expect((await registerCustomer("cliente1","a",false)).status).toBe(401);
+    expect((await registerCustomer("cliente1")).status).toBe(201);
+    expect((await registerCustomer("cliente1")).status).toBe(200);
+    const member=(await getFirestore(adminApp).doc("memberships/a_cliente1").get()).data();
+    expect(member?.role).toBe("customer");
+    expect(member?.customerId).toBe("cliente1");
+    expect((await registerCustomer("ownerA")).status).toBe(409);
+    expect((await getFirestore(adminApp).doc("memberships/a_ownerA").get()).data()?.role).toBe("tenant_owner");
+  });
+  it("booking autenticado salva apenas customerId assinado e não aceita tenant errado",async()=>{
+    expect((await registerCustomer("cliente1")).status).toBe(201);
+    const booked=await customerBooking("cliente1","a","2026-11-03T14:00:00",{customerId:"outraPessoa"});
+    expect(booked.status).toBe(201);
+    const payload=await booked.json() as {appointment:{id:string;customerId:string}};
+    expect(payload.appointment.customerId).toBe("cliente1");
+    const stored=(await getFirestore(adminApp).doc(`tenants/a/appointments/${payload.appointment.id}`).get()).data();
+    expect(stored?.customerId).toBe("cliente1");
+    expect((await customerBooking("cliente1","b")).status).toBe(403);
+    expect((await customerBooking("semVinculo")).status).toBe(403);
+  });
+  it("cancelamento próprio libera locks, mantém histórico e gera audit log",async()=>{
+    await registerCustomer("cliente1");
+    const booked=await customerBooking("cliente1");
+    expect(booked.status).toBe(201);
+    const id=(await booked.json() as {appointment:{id:string}}).appointment.id;
+    expect((await cancelOwn("cliente2",id)).status).toBe(403);
+    await registerCustomer("cliente2");
+    expect((await cancelOwn("cliente2",id)).status).toBe(404);
+    expect((await cancelOwn("cliente1",id)).status).toBe(200);
+    const db=getFirestore(adminApp);
+    expect((await db.doc(`tenants/a/appointments/${id}`).get()).data()?.status).toBe("cancelled");
+    expect((await db.doc("tenants/a/bookingLocks/p1_2026-11-03_840").get()).exists).toBe(false);
+    const logs=(await db.collection("tenants/a/auditLogs").get()).docs;
+    expect(logs.some(doc=>doc.data().action==="appointments.customer_cancel")).toBe(true);
+    expect((await cancelOwn("cliente1",id)).status).toBe(409);
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(201);
+  });
+  it("não permite que cliente reivindique booking guest por telefone ou body.customerId",async()=>{
+    const guest=await book("a","2026-11-03T14:00:00");
+    const id=(await guest.json() as {appointment:{id:string}}).appointment.id;
+    await registerCustomer("cliente1");
+    expect((await cancelOwn("cliente1",id)).status).toBe(404);
+    expect((await getFirestore(adminApp).doc(`tenants/a/appointments/${id}`).get()).data()?.customerId).toBeUndefined();
+  });
   it("Pro: limita a dois administradores adicionais, com auditoria",async()=>{
     expect((await manageAdmin("a","platform","admin1")).status).toBe(200);
     expect((await manageAdmin("a","platform","admin2")).status).toBe(200);
