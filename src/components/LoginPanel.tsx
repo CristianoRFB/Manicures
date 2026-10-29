@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useAuth } from "../auth/AuthProvider";
 
 export function LoginPanel({ title }: { title: string }) {
-  const { configured, signIn } = useAuth();
+  const { configured, signIn, requestPasswordReset } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
@@ -33,6 +33,12 @@ export function LoginPanel({ title }: { title: string }) {
         <label>E-mail<input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required /></label>
         <label>Senha<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required /></label>
         <button className="button primary" type="submit">Entrar</button>
+        <button className="button" type="button" onClick={async()=>{
+          try{
+            await requestPasswordReset(email);
+            setMessage("Se a conta estiver cadastrada, você receberá instruções oficiais de recuperação por e-mail.");
+          }catch(error){setMessage(error instanceof Error?error.message:"Falha ao solicitar recuperação.");}
+        }}>Esqueci minha senha</button>
       </form>
       {message && <div className="callout">{message}</div>}
     </section>

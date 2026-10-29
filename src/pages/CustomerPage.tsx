@@ -14,7 +14,7 @@ const apiBase=()=>{const value=import.meta.env.VITE_BOOKING_API_BASE_URL;
 
 export function CustomerPage(){
   const {tenantSlug}=useParams();
-  const {user,loading,configured,signIn,registerCustomer,sendVerificationEmail,refreshVerifiedUser,logout}=useAuth();
+  const {user,loading,configured,signIn,registerCustomer,sendVerificationEmail,refreshVerifiedUser,requestPasswordReset,logout}=useAuth();
   const [tenant,setTenant]=useState<Tenant|null>(null);
   const [tenantLoading,setTenantLoading]=useState(true);
   const [membership,setMembership]=useState<Membership|null>(null);
@@ -133,6 +133,13 @@ export function CustomerPage(){
         autoComplete={createAccount?"new-password":"current-password"} value={password}
         onChange={event=>setPassword(event.target.value)}/></label>
       <button className="button primary" type="submit" disabled={working}>{working?"Aguarde…":createAccount?"Cadastrar e verificar e-mail":"Entrar"}</button>
+      <button className="button" type="button" onClick={async()=>{
+        setError("");setFeedback("");
+        try{
+          await requestPasswordReset(email);
+          setFeedback("Se a conta existir, você receberá o e-mail oficial de recuperação.");
+        }catch(err){setError(err instanceof Error?err.message:"Falha ao recuperar conta.");}
+      }}>Esqueci minha senha</button>
       <button className="button" type="button" onClick={()=>setCreateAccount(current=>!current)}>
         {createAccount?"Já tenho conta":"Criar uma conta"}
       </button>
