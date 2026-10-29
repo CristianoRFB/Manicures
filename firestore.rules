@@ -71,8 +71,11 @@ service cloud.firestore {
 
       match /appointments/{appointmentId} {
         allow create: if false;
+        // Customer queries must include customerId == verified customer membership ID.
         allow read: if tenantRole(tenantId, ["tenant_owner", "tenant_admin"])
           || professionalOwnsAppointment(tenantId)
+          || (tenantRole(tenantId, ["customer"])
+            && resource.data.get("customerId","") == membership(tenantId).data.customerId)
           || isPlatformOwner();
         // Status changes must update bookingLocks consistently in a trusted layer.
         allow update: if false;
@@ -85,7 +88,12 @@ service cloud.firestore {
       }
 
       match /customers/{customerId} {
-        allow read, write: if tenantRole(tenantId, ["tenant_owner", "tenant_admin", "professional"]) || isPlatformOwner();
+        allow read: if tenantRole(tenantId, ["tenant_owner", "tenant_admin", "professional"])
+          || (tenantRole(tenantId, ["customer"])
+            && membership(tenantId).data.customerId == customerId)
+          || isPlatformOwner();
+        // Customer membership and customer records are created only by trusted Worker.
+        allow create, update, delete: if false;
       }
 
       match /scheduleBlocks/{blockId} {
