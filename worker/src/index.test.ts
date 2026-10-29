@@ -260,6 +260,51 @@ describe("Trusted commercial and professional writes",()=>{
     expect(log.docs[0].data().action).toBe("professionals.schedule_update");
   });
 
+  async function moveBooking(appointmentId:string,startsAt:string,uid="ownerA",tenantId="a"){
+    return worker.fetch(new Request("http://worker.local/api/admin/appointments/reschedule",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId,appointmentId,startsAt}),
+    }),env());
+  }
+  it("remarca atomicamente: preço snapshot intacto, locks e audit atualizados",async()=>{
+    const original=await book("a","2026-11-03T14:00:00");
+    expect(original.status).toBe(201);
+    const body=await original.json() as {appointment:{id:string}};
+    expect((await moveBooking(body.appointment.id,"2026-11-03T16:00:00")).status).toBe(200);
+    const db=getFirestore(adminApp);
+    const moved=(await db.doc(`tenants/a/appointments/${body.appointment.id}`).get()).data();
+    expect(moved?.startsAt).toBe("2026-11-03T16:00:00");
+    expect(moved?.priceSnapshotCents).toBe(4000);
+    expect(moved?.durationSnapshotMin).toBe(60);
+    const oldLock=(await db.doc("tenants/a/bookingLocks/p1_2026-11-03_840").get()).exists;
+    const newLock=(await db.doc("tenants/a/bookingLocks/p1_2026-11-03_960").get()).data();
+    expect(oldLock).toBe(false);
+    expect(newLock?.appointmentId).toBe(body.appointment.id);
+    const audit=await db.collection("tenants/a/auditLogs").get();
+    expect(audit.size).toBe(1);
+    expect(audit.docs[0].data().action).toBe("appointments.reschedule");
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(201);
+    expect((await book("a","2026-11-03T16:00:00")).status).toBe(409);
+  });
+  it("remarca horário sobreposto aos locks próprios sem criar duplicatas",async()=>{
+    const original=await book("a","2026-11-03T14:00:00");
+    expect(original.status).toBe(201);
+    const body=await original.json() as {appointment:{id:string}};
+    expect((await moveBooking(body.appointment.id,"2026-11-03T14:30:00")).status).toBe(200);
+    const locks=await getFirestore(adminApp).collection("tenants/a/bookingLocks").get();
+    expect(locks.size).toBe(4);
+    expect(locks.docs.every(doc=>doc.data().appointmentId===body.appointment.id)).toBe(true);
+  });
+  it("não remarca para slot ocupado nem concede permissão cross tenant",async()=>{
+    const first=await book("a","2026-11-03T14:00:00");
+    expect(first.status).toBe(201);
+    expect((await book("a","2026-11-03T16:00:00")).status).toBe(201);
+    const id=(await first.json() as {appointment:{id:string}}).appointment.id;
+    expect((await moveBooking(id,"2026-11-03T16:00:00")).status).toBe(409);
+    expect((await moveBooking(id,"2026-11-03T15:00:00","ownerB")).status).toBe(403);
+    const stored=(await getFirestore(adminApp).doc(`tenants/a/appointments/${id}`).get()).data();
+    expect(stored?.startsAt).toBe("2026-11-03T14:00:00");
+  });
   it("Pro 3: contador atômico barra criação acima do limite",async()=>{
     expect((await create("a","ownerA","Segunda manicure")).status).toBe(201);
     expect((await create("a","ownerA","Terceira manicure")).status).toBe(201);
