@@ -340,6 +340,28 @@ describe("Trusted commercial and professional writes",()=>{
     expect((await createBlock("ownerB")).status).toBe(403);
     expect((await createBlock("ownerA",{endsAt:"2026-11-02T12:00:00"})).status).toBe(400);
   });
+  async function saveBrand(uid:string,extra:Record<string,unknown>={}){
+    return worker.fetch(new Request("http://worker.local/api/admin/tenants/branding",{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
+      body:JSON.stringify({tenantId:"a",name:"Studio Teste",
+        branding:{primary:"#522277",accent:"#aabbcc",background:"#ffffff",logoText:"ST"},
+        contact:{whatsapp:"5517999999999",instagram:"studio.teste"},...extra}),
+    }),env());
+  }
+  it("tenant owner edita branding com CAS e preserva assinatura comercial",async()=>{
+    expect((await saveBrand("ownerA")).status).toBe(200);
+    const tenant=(await getFirestore(adminApp).doc("tenants/a").get()).data();
+    expect(tenant?.name).toBe("Studio Teste");
+    expect(tenant?.branding.primary).toBe("#522277");
+    expect(tenant?.commercial.planId).toBe("pro");
+    const logs=await getFirestore(adminApp).collection("tenants/a/auditLogs").get();
+    expect(logs.size).toBe(1);
+    expect(logs.docs[0].data().action).toBe("tenant.branding_update");
+  });
+  it("não aceita cor inválida nem grava branding em tenant de outro owner",async()=>{
+    expect((await saveBrand("ownerA",{branding:{primary:"javascript:alert(1)",accent:"#ffffff",background:"#ffffff",logoText:"ST"}})).status).toBe(400);
+    expect((await saveBrand("ownerB")).status).toBe(403);
+  });
   it("Pro 3: contador atômico barra criação acima do limite",async()=>{
     expect((await create("a","ownerA","Segunda manicure")).status).toBe(201);
     expect((await create("a","ownerA","Terceira manicure")).status).toBe(201);
