@@ -52,6 +52,13 @@ export function TenantAdminPage() {
   const [feedback, setFeedback] = useState("");
   const [operationError, setOperationError] = useState("");
   const [loadError, setLoadError] = useState("");
+  const [brandName,setBrandName]=useState("");
+  const [brandPrimary,setBrandPrimary]=useState("#5b2b73");
+  const [brandAccent,setBrandAccent]=useState("#d49adf");
+  const [brandBackground,setBrandBackground]=useState("#fff9ff");
+  const [brandLogo,setBrandLogo]=useState("");
+  const [brandWhatsApp,setBrandWhatsApp]=useState("");
+  const [brandInstagram,setBrandInstagram]=useState("");
 
   useEffect(() => {
     let active=true;
@@ -93,6 +100,17 @@ export function TenantAdminPage() {
     }
     return ()=>{active=false;};
   }, [tenant?.id, user?.uid]);
+
+  useEffect(()=>{
+    if(!tenant)return;
+    setBrandName(tenant.name);
+    setBrandPrimary(tenant.branding.primary);
+    setBrandAccent(tenant.branding.accent);
+    setBrandBackground(tenant.branding.background);
+    setBrandLogo(tenant.branding.logoText);
+    setBrandWhatsApp(tenant.contact.whatsapp??"");
+    setBrandInstagram(tenant.contact.instagram??"");
+  },[tenant?.id]);
 
   const authorized = useMemo(() =>
     platformOwner || Boolean(membership !== null && membership.tenantId===tenant?.id && membership.status==="active" && ADMIN_ROLES.has(membership.role)),
@@ -198,6 +216,28 @@ export function TenantAdminPage() {
     if(!blockStart||!blockEnd||!blockProId)return;
     await blockRequest("create",{professionalId:blockProId,startsAt:`${blockStart}:00`,
       endsAt:`${blockEnd}:00`,reason:blockReason});
+  }
+
+  async function saveBranding(event:React.FormEvent){
+    event.preventDefault();
+    if(!tenant||!user||working)return;
+    setWorking(true);setOperationError("");setFeedback("");
+    try{
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!base)throw new Error("Worker não configurado.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/admin/tenants/branding`,{
+        method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:tenant.id,name:brandName,
+          branding:{primary:brandPrimary,accent:brandAccent,background:brandBackground,logoText:brandLogo},
+          contact:{whatsapp:brandWhatsApp,instagram:brandInstagram}}),
+      });
+      const result=await response.json() as {error?:string};
+      if(!response.ok)throw new Error(result.error??"Não foi possível salvar a identidade.");
+      const updated=await repository.getTenantBySlug(tenant.slug);
+      if(updated)setTenant(updated);
+      setFeedback("Identidade visual salva. Assinatura e configurações comerciais preservadas.");
+    }catch(error){setOperationError(error instanceof Error?error.message:"Falha de rede.");}
+    finally{setWorking(false);}
   }
 
   async function addProfessional(event: React.FormEvent) {
@@ -358,6 +398,17 @@ export function TenantAdminPage() {
         <p><strong>Status:</strong> {tenant.commercial?.subscriptionStatus || "pendente"}</p>
         <p><strong>Limite de profissionais:</strong> {professionals.filter(pro=>pro.active).length}/{getLimit(tenant,"professionals_active") ?? "sem teto"}</p>
       </div>
+      {(platformOwner||membership?.role==="tenant_owner") && <form className="form narrow" onSubmit={(event)=>void saveBranding(event)}>
+        <h2>Identidade do studio</h2>
+        <label>Nome comercial<input required minLength={2} maxLength={100} value={brandName} onChange={event=>setBrandName(event.target.value)}/></label>
+        <label>Marca curta<input required maxLength={5} value={brandLogo} onChange={event=>setBrandLogo(event.target.value)}/></label>
+        <label>Cor principal<input type="color" value={brandPrimary} onChange={event=>setBrandPrimary(event.target.value)}/></label>
+        <label>Cor de destaque<input type="color" value={brandAccent} onChange={event=>setBrandAccent(event.target.value)}/></label>
+        <label>Cor de fundo<input type="color" value={brandBackground} onChange={event=>setBrandBackground(event.target.value)}/></label>
+        <label>WhatsApp comercial<input type="tel" value={brandWhatsApp} placeholder="5517999999999" onChange={event=>setBrandWhatsApp(event.target.value)}/></label>
+        <label>Usuário Instagram<input value={brandInstagram} placeholder="studio.nails" onChange={event=>setBrandInstagram(event.target.value)}/></label>
+        <button type="submit" className="button primary" disabled={working}>Salvar marca e contatos</button>
+      </form>}
       <h2>Serviços</h2>
       <div className="grid cards">
         {services.map(service=><article className="card" key={service.id}>
