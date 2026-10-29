@@ -42,6 +42,7 @@ export function TenantAdminPage() {
   const [scheduleEnd,setScheduleEnd]=useState("18:00");
   const [scheduleBreakStart,setScheduleBreakStart]=useState("12:00");
   const [scheduleBreakEnd,setScheduleBreakEnd]=useState("13:00");
+  const [editingProId,setEditingProId]=useState<string|null>(null);
   const [newProName, setNewProName] = useState("");
   const [newProServices, setNewProServices] = useState<string[]>([]);
   const [editingServiceId,setEditingServiceId]=useState<string|null>(null);
@@ -268,6 +269,12 @@ export function TenantAdminPage() {
     finally{setWorking(false);}
   }
 
+  function beginProfessionalEdit(pro:Professional){
+    setEditingProId(pro.id);setNewProName(pro.name);setNewProServices([...pro.serviceIds]);
+    setFeedback("");setOperationError("");
+  }
+  function resetProfessionalForm(){setEditingProId(null);setNewProName("");setNewProServices([]);}
+
   async function addProfessional(event: React.FormEvent) {
     event.preventDefault();
     if (!tenant || !user || working) return;
@@ -275,14 +282,14 @@ export function TenantAdminPage() {
     try {
       const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
       if (!base) throw new Error("Worker de equipe indisponível.");
-      const response=await fetch(`${base.replace(/\/$/,"")}/api/admin/professionals`, {
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/admin/professionals${editingProId?"/edit":""}`, {
         method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
-        body:JSON.stringify({tenantId:tenant.id,name:newProName.trim(),serviceIds:newProServices}),
+        body:JSON.stringify({tenantId:tenant.id,professionalId:editingProId,name:newProName.trim(),serviceIds:newProServices}),
       });
       const data=await response.json() as {error?:string};
       if (!response.ok) throw new Error(data.error || "Falha no cadastro.");
-      await refresh();setNewProName("");setNewProServices([]);
-      setFeedback("Profissional cadastrada com validação de limite e auditoria.");
+      await refresh();resetProfessionalForm();
+      setFeedback(editingProId?"Profissional editada, sem alterar a contagem de vagas.":"Profissional cadastrada com limite e auditoria.");
     } catch(err) {setOperationError(err instanceof Error ? err.message : "Falha de rede.");}
     finally{setWorking(false);}
   }
@@ -481,13 +488,16 @@ export function TenantAdminPage() {
       <div className="grid cards">{professionals.map(pro=><article className="card" key={pro.id}>
         <h3>{pro.name}</h3>
         <p>{pro.active?"Ativa":"Inativa"} — {pro.serviceIds.length} serviço(s) associado(s)</p>
+        <div className="row">
+          <button className="button" type="button" disabled={working || !evaluate(tenant,"professionals.manage").allowed}
+            onClick={()=>beginProfessionalEdit(pro)}>Editar</button>
         <button className="button" type="button" disabled={working || !evaluate(tenant,"professionals.manage").allowed}
           onClick={()=>void toggleProfessional(pro.id,!pro.active)}>
           {pro.active?"Desativar":"Reativar"}
-        </button>
+        </button></div>
       </article>)}</div>
       <form className="form narrow" onSubmit={(event)=>void addProfessional(event)}>
-        <h3>Cadastrar profissional</h3>
+        <h3>{editingProId?"Editar profissional":"Cadastrar profissional"}</h3>
         <label>Nome<input required minLength={2} maxLength={100} value={newProName} onChange={e=>setNewProName(e.target.value)} /></label>
         <fieldset><legend>Serviços que realiza</legend>{services.map(service=>
           <label key={service.id} className="row">
@@ -495,7 +505,8 @@ export function TenantAdminPage() {
             {service.name}
           </label>)}
         </fieldset>
-        <button className="button primary" type="submit" disabled={working || !evaluate(tenant,"professionals.manage").allowed}>{working?"Salvando…":"Adicionar profissional"}</button>
+        <div className="row"><button className="button primary" type="submit" disabled={working || !evaluate(tenant,"professionals.manage").allowed}>{working?"Salvando…":editingProId?"Salvar alterações":"Adicionar profissional"}</button>
+        {editingProId&&<button type="button" className="button" onClick={resetProfessionalForm}>Cancelar edição</button>}</div>
       </form>
       <h2>Horários de atendimento por profissional</h2>
       <form className="form narrow" onSubmit={(event)=>void saveSchedule(event)}>
