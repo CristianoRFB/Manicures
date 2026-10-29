@@ -30,6 +30,7 @@ export function BookingPage() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [message, setMessage] = useState("");
+  const [receipt,setReceipt]=useState<{id:string;service:string;professional:string;start:string;priceCents:number}|null>(null);
   const [submitting,setSubmitting]=useState(false);
   const [loadError,setLoadError]=useState("");
   const [loaded,setLoaded]=useState(false);
@@ -37,7 +38,7 @@ export function BookingPage() {
   useEffect(()=>{
     let active=true;
     setLoaded(false);setLoadError("");setTenant(null);setServices([]);setProfessionals([]);setAppointments([]);
-    setServiceId("");setProfessionalId("");setSlot("");setAvailable([]);
+    setServiceId("");setProfessionalId("");setSlot("");setAvailable([]);setReceipt(null);
     resolveTenant(repository,tenantSlug).then(async resolved=>{
       if(!active)return;
       if(!resolved){setLoaded(true);return;}
@@ -92,9 +93,11 @@ export function BookingPage() {
       return;
     }
     if(submitting)return;
-    setSubmitting(true);setMessage("");
+    setSubmitting(true);setMessage("");setReceipt(null);
     try {
-      await createProtectedBooking({ tenant, service, professionalId: professional.id, startsAt: slot, customerName: name.trim(), customerPhone: phone.trim() });
+      const saved=await createProtectedBooking({ tenant, service, professionalId: professional.id, startsAt: slot, customerName: name.trim(), customerPhone: phone.trim() });
+      setReceipt({id:saved.id,service:service.name,professional:professional.name,
+        start:saved.startsAt,priceCents:saved.priceSnapshotCents});
       setMessage("Agendamento confirmado para solicitação. A equipe poderá validar seu atendimento.");
       setSlot("");setName("");setPhone("");
       const latest=await getProtectedAvailability({tenantId:tenant.id,serviceId:service.id,professionalId:professional.id,date})
@@ -135,7 +138,15 @@ export function BookingPage() {
             {submitting?"Confirmando…":"Solicitar agendamento"}
           </button>
         </form>
-        {message && <div className="callout">{message}</div>}
+        {message && <div className="callout" role="status">{message}</div>}
+        {receipt && <section className="card" aria-label="Comprovante da solicitação">
+          <h2>Solicitação registrada</h2>
+          <p><strong>Protocolo:</strong> <code>{receipt.id}</code></p>
+          <p>{receipt.service} com {receipt.professional}</p>
+          <p>{receipt.start.replace("T"," ").slice(0,16)}</p>
+          <p>{new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(receipt.priceCents/100)}</p>
+          <p>Guarde este protocolo. Ele não é um link público e não expõe dados pessoais.</p>
+        </section>}
         <Link to={`/app/${tenant.slug}`}>Ir para o painel →</Link>
       </section>
     </TenantTheme>

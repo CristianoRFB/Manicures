@@ -8,16 +8,26 @@ import { TenantTheme } from "../components/TenantTheme";
 export function TenantPublicPage() {
   const { tenantSlug } = useParams();
   const [tenant, setTenant] = useState<Tenant | null | undefined>(undefined);
+  const [error,setError]=useState("");
   const [services, setServices] = useState<Service[]>([]);
 
-  useEffect(() => {
-    resolveTenant(repository, tenantSlug).then(async (resolved) => {
-      setTenant(resolved);
-      if (resolved) setServices(await repository.listServices(resolved.id));
+  useEffect(()=>{
+    let live=true;
+    setTenant(undefined);setServices([]);setError("");
+    resolveTenant(repository,tenantSlug).then(async resolved=>{
+      if(!live)return;
+      if(!resolved){setTenant(null);return;}
+      const items=await repository.listServices(resolved.id);
+      if(!live)return;
+      setTenant(resolved);setServices(items);
+    }).catch(err=>{
+      if(live){setError(err instanceof Error?err.message:"Falha ao carregar studio.");setTenant(null);}
     });
-  }, [tenantSlug]);
+    return()=>{live=false;};
+  },[tenantSlug]);
 
-  if (tenant === undefined) return <section className="page">Carregando…</section>;
+  if (tenant === undefined) return <section className="page" role="status">Carregando studio…</section>;
+  if(error)return <section className="page" role="alert">{error}</section>;
   if (!tenant) return <section className="page"><h1>Tenant não encontrado</h1></section>;
 
   return (
@@ -31,6 +41,7 @@ export function TenantPublicPage() {
             <p>Escolha um serviço e marque um horário sem criar conta.</p>
           </div>
         </div>
+        {services.length===0&&<p>Nenhum serviço ativo cadastrado no momento.</p>}
         <div className="grid cards">
           {services.map((service) => (
             <article className="card" key={service.id}>
@@ -41,7 +52,7 @@ export function TenantPublicPage() {
             </article>
           ))}
         </div>
-        <Link className="button primary" to={`/${tenant.slug}/book`}>Agendar agora</Link>
+        {services.length>0&&<Link className="button primary" to={`/${tenant.slug}/book`}>Agendar agora</Link>}
       </section>
     </TenantTheme>
   );
