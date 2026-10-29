@@ -139,7 +139,7 @@ export function BookingPage() {
         <h1>Novo agendamento</h1>
         <p>{linkedCustomer?"Reserva vinculada à sua conta de cliente verificada.":"Reserva como visitante: ela não aparecerá no histórico de nenhuma conta sem vínculo autenticado."}</p>
         {checkingCustomer&&<p role="status">Validando vínculo da sua conta…</p>}
-        {customerLinkError&&<p role="alert">{customerLinkError}</p>
+        {customerLinkError&&<p role="alert">{customerLinkError}</p>}
         <Link to={`/customer/${tenant.slug}`}>Entrar, cadastrar ou ver meus horários</Link>
         <form className="form" onSubmit={submit}>
           <label>Serviço<select value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlot(""); }}>
