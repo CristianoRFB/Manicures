@@ -19,6 +19,7 @@ export function TenantAdminPage() {
   const [membership, setMembership] = useState<Membership | null>(null);
   const [platformOwner, setPlatformOwner] = useState(false);
   const [appointments, setAppointments] = useState<Appointment[]>([]);
+  const [customerSearch,setCustomerSearch]=useState("");
   const [reschedulingId,setReschedulingId]=useState("");
   const [rescheduleDate,setRescheduleDate]=useState("");
   const [rescheduleSlot,setRescheduleSlot]=useState("");
@@ -378,6 +379,24 @@ export function TenantAdminPage() {
     finally{setWorking(false);}
   }
 
+  const customerHistory=useMemo(()=>{
+    const map=new Map<string,{name:string;phone:string;total:number;completed:number;last:string}>();
+    for(const appointment of appointments){
+      const phone=appointment.customerPhone.replace(/\D/g,"");
+      const key=phone||`unknown:${appointment.id}`;
+      const existing=map.get(key);
+      const item=existing??{name:appointment.customerName,phone,total:0,completed:0,last:""};
+      item.total++;
+      if(appointment.status==="completed")item.completed++;
+      if(appointment.startsAt>item.last){item.last=appointment.startsAt;item.name=appointment.customerName;}
+      map.set(key,item);
+    }
+    const search=customerSearch.trim().toLocaleLowerCase("pt-BR");
+    return [...map.values()].filter(customer=>!search||
+      customer.name.toLocaleLowerCase("pt-BR").includes(search)||customer.phone.includes(search))
+      .sort((a,b)=>b.last.localeCompare(a.last));
+  },[appointments,customerSearch]);
+
   if (loading) return <section className="page">Validando sessão…</section>;
   if (tenantLoading) return <section className="page" role="status">Carregando tenant…</section>;
   if (!user) return <LoginPanel title="Painel do tenant" />;
@@ -498,6 +517,20 @@ export function TenantAdminPage() {
       {!evaluate(tenant,"services.manage").allowed && <p>Cadastro bloqueado pelo estado comercial ou configuração deste tenant.</p>}
       {feedback && <p role="status">{feedback}</p>}
       {operationError && <p role="alert">{operationError}</p>}
+      <h2>Histórico de clientes</h2>
+      <p>Registros calculados a partir dos agendamentos deste tenant. Nenhum dado é publicado para visitantes.</p>
+      <label>Buscar nome ou telefone
+        <input type="search" value={customerSearch}
+          onChange={event=>setCustomerSearch(event.target.value)} placeholder="Buscar cliente"/>
+      </label>
+      {customerHistory.length===0?<p>Nenhum cliente encontrado.</p>:
+        <div className="table-wrap"><table>
+          <thead><tr><th>Cliente</th><th>Telefone</th><th>Agendamentos</th><th>Concluídos</th><th>Último horário</th></tr></thead>
+          <tbody>{customerHistory.map(item=><tr key={item.phone||item.last}>
+            <td>{item.name}</td><td>{item.phone||"Não informado"}</td><td>{item.total}</td>
+            <td>{item.completed}</td><td>{item.last.replace("T"," ").slice(0,16)}</td>
+          </tr>)}</tbody>
+        </table></div>}
       <h2>Agenda</h2>
       <div className="table-wrap"><table><thead><tr><th>Cliente</th><th>Serviço</th><th>Profissional</th><th>Horário</th><th>Status</th><th>Ações</th></tr></thead><tbody>
         {[...appointments].sort((a,b) => a.startsAt.localeCompare(b.startsAt)).map((a) => (
