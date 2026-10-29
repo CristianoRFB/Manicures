@@ -61,6 +61,9 @@ export interface Professional {
   name: string;
   active: boolean;
   serviceIds: string[];
+  weeklyHours?: Record<string,{
+    closed:boolean;startMinute:number;endMinute:number;breakStartMinute:number;breakEndMinute:number;
+  }>;
 }
 
 export interface Appointment {

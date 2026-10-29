@@ -21,6 +21,13 @@ export function TenantAdminPage() {
   const [services, setServices] = useState<Service[]>([]);
   const [professionals, setProfessionals] = useState<Professional[]>([]);
   const auditLogged = useRef(false);
+  const [scheduleProId,setScheduleProId]=useState("");
+  const [scheduleDay,setScheduleDay]=useState(1);
+  const [scheduleClosed,setScheduleClosed]=useState(false);
+  const [scheduleStart,setScheduleStart]=useState("09:00");
+  const [scheduleEnd,setScheduleEnd]=useState("18:00");
+  const [scheduleBreakStart,setScheduleBreakStart]=useState("12:00");
+  const [scheduleBreakEnd,setScheduleBreakEnd]=useState("13:00");
   const [newProName, setNewProName] = useState("");
   const [newProServices, setNewProServices] = useState<string[]>([]);
   const [editingServiceId,setEditingServiceId]=useState<string|null>(null);
@@ -108,6 +115,45 @@ export function TenantAdminPage() {
     const [a,s,p] = await Promise.all([repository.listAppointments(tenant.id),
       repository.listServices(tenant.id),repository.listProfessionals(tenant.id,{includeInactive:true})]);
     setAppointments(a);setServices(s);setProfessionals(p);
+  }
+
+  const selectedScheduleProfessional=professionals.find(pro=>pro.id===scheduleProId);
+  useEffect(()=>{
+    if(!scheduleProId && professionals.length)setScheduleProId(professionals[0].id);
+  },[professionals,scheduleProId]);
+  useEffect(()=>{
+    const hours=selectedScheduleProfessional?.weeklyHours?.[String(scheduleDay)];
+    const fmt=(min:number)=>`${String(Math.floor(min/60)).padStart(2,"0")}:${String(min%60).padStart(2,"0")}`;
+    setScheduleClosed(hours?.closed ?? false);
+    setScheduleStart(fmt(hours?.startMinute??540));setScheduleEnd(fmt(hours?.endMinute??1080));
+    setScheduleBreakStart(fmt(hours?.breakStartMinute??720));
+    setScheduleBreakEnd(fmt(hours?.breakEndMinute??780));
+  },[scheduleProId,scheduleDay,selectedScheduleProfessional]);
+
+  async function saveSchedule(event:React.FormEvent){
+    event.preventDefault();
+    if(!tenant||!user||working||!scheduleProId)return;
+    const toMinutes=(value:string)=>{
+      const [h,m]=value.split(":").map(Number);
+      if(!Number.isSafeInteger(h)||!Number.isSafeInteger(m)||h<0||h>23||m<0||m>59)throw new Error("Horário inválido.");
+      return h*60+m;
+    };
+    setWorking(true);setFeedback("");setOperationError("");
+    try{
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!base)throw new Error("Worker não configurado.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/admin/professionals/schedule`,{
+        method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:tenant.id,professionalId:scheduleProId,weekday:scheduleDay,
+          closed:scheduleClosed,startMinute:toMinutes(scheduleStart),endMinute:toMinutes(scheduleEnd),
+          breakStartMinute:toMinutes(scheduleBreakStart),breakEndMinute:toMinutes(scheduleBreakEnd)}),
+      });
+      const result=await response.json() as {error?:string};
+      if(!response.ok)throw new Error(result.error??"Falha ao atualizar expediente.");
+      await refresh();
+      setFeedback("Expediente atualizado com auditoria. Agendamentos futuros incompatíveis são protegidos.");
+    }catch(error){setOperationError(error instanceof Error?error.message:"Falha ao salvar agenda.");}
+    finally{setWorking(false);}
   }
 
   async function addProfessional(event: React.FormEvent) {
@@ -272,6 +318,25 @@ export function TenantAdminPage() {
           </label>)}
         </fieldset>
         <button className="button primary" type="submit" disabled={working || !evaluate(tenant,"professionals.manage").allowed}>{working?"Salvando…":"Adicionar profissional"}</button>
+      </form>
+      <h2>Horários de atendimento por profissional</h2>
+      <form className="form narrow" onSubmit={(event)=>void saveSchedule(event)}>
+        <label>Profissional
+          <select value={scheduleProId} onChange={event=>setScheduleProId(event.target.value)} required>
+            {professionals.map(pro=><option key={pro.id} value={pro.id}>{pro.name}</option>)}
+          </select>
+        </label>
+        <label>Dia da semana
+          <select value={scheduleDay} onChange={event=>setScheduleDay(Number(event.target.value))}>
+            {["Domingo","Segunda","Terça","Quarta","Quinta","Sexta","Sábado"].map((day,i)=><option key={day} value={i}>{day}</option>)}
+          </select>
+        </label>
+        <label className="row"><input type="checkbox" checked={scheduleClosed} onChange={event=>setScheduleClosed(event.target.checked)}/>Dia fechado</label>
+        <label>Início<input type="time" value={scheduleStart} required onChange={event=>setScheduleStart(event.target.value)}/></label>
+        <label>Fim<input type="time" value={scheduleEnd} required onChange={event=>setScheduleEnd(event.target.value)}/></label>
+        <label>Início da pausa<input type="time" value={scheduleBreakStart} required onChange={event=>setScheduleBreakStart(event.target.value)}/></label>
+        <label>Fim da pausa<input type="time" value={scheduleBreakEnd} required onChange={event=>setScheduleBreakEnd(event.target.value)}/></label>
+        <button type="submit" className="button primary" disabled={working||!scheduleProId}>Salvar expediente</button>
       </form>
       {!evaluate(tenant,"services.manage").allowed && <p>Cadastro bloqueado pelo estado comercial ou configuração deste tenant.</p>}
       {feedback && <p role="status">{feedback}</p>}
