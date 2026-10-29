@@ -5,12 +5,12 @@ import {getBytes,ref,uploadBytes} from "firebase/storage";
 import fs from "node:fs";
 
 let env:RulesTestEnvironment;
-const bucket="manicure-storage-test.appspot.com";
+const bucket="manicure-demo.appspot.com";
 const path=(tenant:string,kind:string,id:string,file:string)=>`tenants/${tenant}/${kind}/${id}/${file}`;
 const image=new Uint8Array([137,80,78,71,13,10,26,10]);
 beforeAll(async()=>{
   env=await initializeTestEnvironment({
-    projectId:"manicure-storage-test",
+    projectId:"manicure-demo",
     firestore:{rules:fs.readFileSync("firestore.rules","utf8")},
     storage:{rules:fs.readFileSync("storage.rules","utf8")},
   });
