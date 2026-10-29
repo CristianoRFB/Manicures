@@ -34,11 +34,11 @@ npx wrangler dev --config worker/wrangler.toml
 - Planos: Essencial 1 profissional/0 admin adicional; Pro 3/2; Premium 10/5.
 - Trial: 14 dias; testar vigente, vencido, demo fictícia, suspenso/cancelled.
 - Profissionais: criação por quota, desativação bloqueada com reserva futura, reativação com quota após downgrade.
-- Serviços: preço em centavos, duração, cadastro, atualização/remoção: **STOP se fluxo não implementado**.
-- Booking: acesso público, disponibilidade sem PII, concorrência, cancelamento libera slot.
-- Agendamentos: pending → confirmed → in_service → completed e cancelled/no_show.
+- Serviços: preço em centavos, duração, cadastro, edição, arquivamento/reativação; não excluir histórico.
+- Booking: acesso público, disponibilidade sem PII, concorrência, remarcação transfere locks, cancelamento libera slot, comprovante em memória.
+- Agendamentos: pending → confirmed → in_service → completed e cancelled/no_show; no-show futuro negado.
 - Quatro viewports: 320, 375, 768 e 1440 px; Chrome, Firefox, Edge.
-- Storage e white-label: uploads/permissões reais permanecem pendentes.
+- White-label: edição nome, cores, logo-texto e contatos aprovada pelo owner; Storage: uploads/permissões reais permanecem pendentes.
 - Nunca apresentar mockup conceitual como screenshot de UI real.
 
 ## Critérios de parada

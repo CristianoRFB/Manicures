@@ -1,37 +1,37 @@
 # PRE_PC_COMPLETENESS — Manicure
 
-## Métrica de continuidade
-Baseline aprovado do último turno: **22/42 entregas de engenharia CODE_COMPLETE (52,4%)**.
-Após os commits subsequentes: **24/42 (57,1%)**, contabilizando somente dois módulos que passaram de incompletos a comprovados por código + CI:
-- **09** `tenant_admins` — endpoint confiável, contador com CAS, auditoria, UI Platform Owner, testes Essencial/Pro, downgrade, desativação e Tenant A × B
-- **11** override gerenciável — formulário Platform Owner + Worker com persistência, audit log e teste do bloqueio real de booking
+## Baseline e avanço mensurável
+- Baseline do turno anterior: **24/42 = 57,1%**.
+- Novo checkpoint: **31/42 = 73,8%** — avanço de **+7 entregas**, sem mudar o denominador.
 
-Não foram convertidos em DONE os seguintes itens ainda parciais: downgrade UX excedentes (13), edição de profissionais (17: apenas ativação/desativação está operacional), horários configuráveis (18–20), painel Owner completo (32), UX cross-device (34), gestão ampla de memberships (36), auditoria de todas as operações (37), exportação/artefatos (39).
+As sete entregas promovidas para CODE_COMPLETE **só permanecem assim com CI do SHA final verde**:
 
-**Marcadores que melhoraram sem alterar o numerador**:
-- Corrigida indisponibilidade que cruzava a pausa de almoço e adicionado teste.
-- Profissional pode ser desativada/reativada pelo Worker com CAS e bloqueio de reservas futuras; teste A×B e downgrade.
-- Valor BRL parseado em centavos exatos com testes.
-- Botões reais de status do atendimento conectados ao Worker; corrigida renderização de coluna de ações.
-- Troca rápida de tenant limpa estado e ignora respostas assíncronas anteriores.
-- `npm run test:pre-pc` agrega as validações executáveis em CI/PC.
+| Nº | Entrega | Código | Prova automatizada |
+|---:|---|---|---|
+| 1 | Editar, arquivar e reativar serviços | `src/data/firestoreRepository.ts`, `src/pages/TenantAdminPage.tsx`, Rules | `src/test/firestore.rules.test.ts` |
+| 2 | Expediente semanal, intervalos e dias fechados por profissional | `worker/src/index.ts`, admin, domínio | `worker/src/index.test.ts` |
+| 3 | Folgas/bloqueios e cancelamento auditado | Worker, Firestore Rules, admin | Worker emulator + Rules negativas |
+| 4 | Remarcação atômica com transferência de bookingLocks | Worker e admin | Worker emulator: conflito, overlap, CAS, A×B |
+| 5 | Editor white-label persistente, tenant-owner only | Worker e admin | Worker emulator: permissão e preservação do plano |
+| 6 | Agenda profissional privada com ações limitadas | `src/pages/ProfessionalPage.tsx`, Repository, Rules | `src/test/firestore.rules.test.ts` (consulta própria e negação) |
+| 7 | Exportar agendamentos em CSV protegido e auditado | Worker e admin | Worker emulator: A×B, CSV formula, audit log |
 
-## Contratos de engenharia ainda abertos
+**Melhorias sem adicionar ao numerador:** Auth Emulator local com guardas e login testado, histórico agrupado para admin, comprovante in-session, validação de PII no booking, no-show após horário, responsividade CSS, correção de estados de rota.
 
-| Grupo | Parcial ou faltante | Prova exigida |
-|---|---|---|
-| M1 | Downgrade com UX de excedente e cobertura de billing manual | Testes sem perda de dados/histórico |
-| M2 | Editar serviços/profissionais, horários por profissional e exceções, remarcação | Worker + Rules + Emulator + UI |
-| M3 | Histórico/autoatendimento do cliente, dashboard profissional, editor white-label, UX em quatro viewports | Auth/RBAC por tenant, testes e screenshots reais |
-| M4 | Gestão de outros papéis com convites, exportação autorizada, logs completos e mídia persistente | Backend e Rules |
-| M5 | Browser real desktop/mobile e ensaio hospedado | EXTERNAL_GATE; não conta como CODE_COMPLETE |
+## Pendências ainda reais (11/42)
+- Autoatendimento do cliente e histórico autenticado próprio.
+- Gestão de nome/vínculos do profissional, convites de identidade e papéis completos.
+- UX de downgrade excedente e suporte robusto para trials/suspensões.
+- Storage e mídia persistente: RBAC, uploads, lifecycle de portfólio, provas reais.
+- QA/browser mobile + screenshots reais e staging/deploy (external gates não equivalem a DONE).
+- Dependências de planos NEXT/DEFERRED não são declaradas implementadas.
 
-## Não mover para NOW sem decisão aprovada
-Gateway, checkout, billing automático, dunning, WhatsApp pago, integração paga, domínio custom automático, múltiplas unidades, módulos Premium futuros DEFERRED.
+## Estado de segurança
+- Backend continua enforcement: Rules + Worker; esconder botão não concede permissão.
+- Staff/profissional/tenant têm isolamento testado A×B.
+- Worker local Auth Emulator só é permitido para `manicure-demo` em `127.0.0.1`, com sessão reconhecida pelo Auth Emulator.
+- Produção e merge não foram alterados.
 
-## Evidência
-- Repo: `CristianoRFB/Manicures`
-- Branch: `feat/core-multitenant-firebase`
-- PR: https://github.com/CristianoRFB/Manicures/pull/1
-- Os resultados do CI do SHA final devem ser consultados no Actions; nunca inferir PASS do arquivo Markdown.
-- A execução em produção e o merge da PR são decisões separadas e não foram autorizados.
+## Próxima rodada
+Continuar do HEAD verificado da branch `feat/core-multitenant-firebase`. Não repetir CORE nem auditorias anteriores.
+Priorizar vínculo de profissional, autosserviço do cliente, segurança de Storage e navegação de hospedagem.
