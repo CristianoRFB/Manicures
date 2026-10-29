@@ -54,6 +54,12 @@ export function TenantAdminPage() {
   const [working, setWorking] = useState(false);
   const [feedback, setFeedback] = useState("");
   const [operationError, setOperationError] = useState("");
+  const [usageOverview,setUsageOverview]=useState<null|{
+    usage:{professionals_active:number;tenant_admins:number};
+    limits:{professionals_active:number|null;tenant_admins:number|null};
+    exceeded:{professionals_active:boolean;tenant_admins:boolean};
+    subscriptionStatus:string;
+  }>(null);
   const [loadError, setLoadError] = useState("");
   const [brandName,setBrandName]=useState("");
   const [brandPrimary,setBrandPrimary]=useState("#5b2b73");
@@ -72,7 +78,7 @@ export function TenantAdminPage() {
     setAppointments([]);
     setReschedulingId("");setRescheduleSlots([]);setRescheduleDate("");setRescheduleSlot("");
     setServices([]);
-    setProfessionals([]);setScheduleBlocks([]);
+    setProfessionals([]);setScheduleBlocks([]);setUsageOverview(null);
     setLoadError("");
     auditLogged.current=false;
     resolveTenant(repository, tenantSlug).then(value => {
@@ -154,6 +160,23 @@ export function TenantAdminPage() {
       repository.listScheduleBlocks(tenant.id)]);
     setAppointments(a);setServices(s);setProfessionals(p);setScheduleBlocks(b);
   }
+
+  useEffect(()=>{
+    let alive=true;
+    setUsageOverview(null);
+    if(!tenant||!user||!authorized)return;
+    const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+    if(!base)return;
+    user.getIdToken().then(auth=>fetch(`${base.replace(/\/$/,"")}/api/admin/usage`,{
+      method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${auth}`},
+      body:JSON.stringify({tenantId:tenant.id}),
+    })).then(async response=>{
+      const payload=await response.json() as typeof usageOverview & {error?:string};
+      if(!response.ok)throw new Error(payload?.error??"Falha ao consultar quotas.");
+      if(alive)setUsageOverview(payload);
+    }).catch(()=>{if(alive)setUsageOverview(null);});
+    return()=>{alive=false;};
+  },[tenant?.id,user?.uid,authorized,professionals.length]);
 
   const selectedScheduleProfessional=professionals.find(pro=>pro.id===scheduleProId);
   useEffect(()=>{
@@ -447,6 +470,15 @@ export function TenantAdminPage() {
         <div className="stat"><strong>{professionals.filter(pro=>pro.active).length}</strong><span>profissionais ativas</span></div>
         <div className="stat"><strong>{services.length}</strong><span>serviços</span></div>
       </div>
+      {usageOverview && <section aria-label="Uso e limites do plano">
+        <p><strong>Administradores adicionais:</strong> {usageOverview.usage.tenant_admins}/{usageOverview.limits.tenant_admins??"sem teto"}</p>
+        {(usageOverview.exceeded.professionals_active||usageOverview.exceeded.tenant_admins)&&
+          <div className="callout" role="alert">
+            <strong>Equipe acima do limite do plano atual.</strong>
+            <p>Todos os dados históricos foram preservados. Não é possível criar ou reativar vínculos que aumentem o excedente;
+              reduza o número de contas ativas ou solicite alteração do plano ao Platform Owner.</p>
+          </div>}
+      </section>}
       <div className="row">
         <p><strong>Plano:</strong> {tenant.commercial?.planId || "legado sem atribuição"}</p>
         <p><strong>Status:</strong> {tenant.commercial?.subscriptionStatus || "pendente"}</p>
