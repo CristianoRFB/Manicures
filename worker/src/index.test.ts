@@ -703,6 +703,29 @@ describe("Trusted commercial and professional writes",()=>{
     expect(logs.docs[0].data().before.planId).toBe("pro");
     expect(logs.docs[0].data().actorId).toBe("platform");
   });
+  it("revisão manual do trial preserva data de término de 14 dias",async()=>{
+    const db=getFirestore(adminApp);
+    const assign=async(status:string)=>worker.fetch(new Request("http://worker.local/api/admin/plans/assign",{
+      method:"POST",headers:{"content-type":"application/json",
+        authorization:`Bearer ${await signedToken("platform")}`},
+      body:JSON.stringify({tenantId:"a",planId:"pro",subscriptionStatus:status,
+        reason:"Teste de correção de trial já aprovado"}),
+    }),env());
+    expect((await assign("trial")).status).toBe(200);
+    const original=(await db.doc("tenants/a").get()).data()?.commercial?.trialUntil;
+    expect(Date.parse(original)).toBeGreaterThan(Date.now()+13*24*60*60*1000);
+    expect((await assign("trial")).status).toBe(200);
+    const stable=(await db.doc("tenants/a").get()).data()?.commercial?.trialUntil;
+    expect(stable).toBe(original);
+    const past="2026-01-01T00:00:00.000Z";
+    await db.doc("tenants/a").update({commercial:{
+      planId:"pro",subscriptionStatus:"trial",trialUntil:past,
+    }});
+    expect((await assign("trial")).status).toBe(200);
+    expect((await db.doc("tenants/a").get()).data()?.commercial?.trialUntil).toBe(past);
+    expect((await assign("active")).status).toBe(200);
+    expect((await db.doc("tenants/a").get()).data()?.commercial?.trialUntil).toBeNull();
+  });
   it("consulta disponibilidade sem expor PII e atualiza após booking/cancelamento",async()=>{
     const availability=()=>worker.fetch(new Request("http://worker.local/api/availability?tenantId=a&serviceId=s1&professionalId=p1&date=2026-11-03"),env());
     const first=await availability();
