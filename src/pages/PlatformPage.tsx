@@ -105,7 +105,7 @@ export function PlatformPage() {
       const limits = {...(selected.commercial?.limitOverrides ?? {})};
       const parseOverride=(value:string,key:"professionals_active"|"tenant_admins")=>{
         if(!value.trim()) {delete limits[key]; return;}
-        if(!/^\\d{1,4}$/.test(value.trim())) throw new Error("Limite inválido: use inteiro de 0 a 9999.");
+        if(!/^[0-9]{1,4}$/.test(value.trim())) throw new Error("Limite inválido: use inteiro de 0 a 9999.");
         limits[key] = Number(value.trim());
       };
       parseOverride(professionalCap,"professionals_active");
@@ -475,11 +475,11 @@ export function PlatformPage() {
           </label>
           <p>Fundamentos de segurança e integridade nunca são diferenciados por plano.</p>
           <label>Limite excepcional de profissionais (vazio = plano)
-            <input inputMode="numeric" pattern="\\d{1,4}" value={professionalCap}
+            <input inputMode="numeric" pattern="[0-9]{1,4}" value={professionalCap}
               placeholder="Herdar" onChange={(e)=>setProfessionalCap(e.target.value)} />
           </label>
           <label>Limite excepcional de administradores (vazio = plano)
-            <input inputMode="numeric" pattern="\\d{1,4}" value={adminCap}
+            <input inputMode="numeric" pattern="[0-9]{1,4}" value={adminCap}
               placeholder="Herdar" onChange={(e)=>setAdminCap(e.target.value)} />
           </label>
         </fieldset>
