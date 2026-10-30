@@ -201,6 +201,7 @@ export function PlatformPage() {
             {selected?.kind === "demo" && <option value="demo">demo</option>}
           </select>
         </label>
+        {form.status==="trial"&&<p role="status">Trial aprovado: 14 dias corridos a partir da atribuição. O Worker calcula e audita o término; não existe checkout ou cobrança automática.</p>}
         <label>Justificativa (mínimo 10 caracteres)
           <input value={form.reason} minLength={10} maxLength={600} required onChange={(e)=>setForm(f=>({...f,reason:e.target.value}))} />
         </label>
