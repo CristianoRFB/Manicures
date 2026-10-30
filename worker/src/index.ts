@@ -1,6 +1,6 @@
 import { assertCommercialChange, evaluate, getLimit, type CommercialState } from "../../src/commercial/entitlements";
 import type { Tenant } from "../../src/domain/types";
-import {getStoredObject,deleteStoredGeneration,listStoredObjects,summarizeStoragePage} from "./mediaStorage";
+import {getStoredObject,deleteStoredGeneration,listStoredObjects,summarizeStoragePage,scanStoragePrefix} from "./mediaStorage";
 
 interface Env {
   FIREBASE_PROJECT_ID: string;
@@ -1887,6 +1887,34 @@ async function reviewPortfolioRemoval(request:Request,env:Env):Promise<Response>
 /** Physical deletion is disabled by default; it requires independent explicit opt-in,
  * two-step approval, a precise Storage generation, and a privileged actor.
  */
+/** Read-only operational capacity scan. No commercial cap or billing/egress estimates. */
+async function scanPortfolioCapacity(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const pageToken=typeof data.pageToken==="string"?data.pageToken:"";
+  const maxPages=data.maxPages===undefined?10:data.maxPages;
+  const threshold=data.alertThresholdBytes;
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId)||pageToken.length>1200||
+    typeof maxPages!=="number"||!Number.isInteger(maxPages)||maxPages<1||maxPages>20||
+    (threshold!==undefined && (typeof threshold!=="number"||
+      !Number.isSafeInteger(threshold)||threshold<1)))
+    return json(env,{error:"Parâmetros de capacidade inválidos."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||actor.actorRole!=="platform_owner")
+    return json(env,{error:"Inventário reservado ao Platform Owner."},403);
+  if(!await getDocument(env,token,"tenants/"+tenantId))
+    return json(env,{error:"Tenant não encontrado."},404);
+  const mediaToken=env.FIREBASE_STORAGE_EMULATOR_HOST?""
+    :await serviceAccessToken(env,"https://www.googleapis.com/auth/devstorage.read_only");
+  const result=await scanStoragePrefix(env,mediaToken,
+    "tenants/"+tenantId+"/public/portfolio/",pageToken||undefined,maxPages);
+  return json(env,{tenantId,...result,
+    ...(threshold===undefined?{}:{alertThresholdBytes:threshold,
+      observedThresholdExceeded:result.metrics.totalBytes>=threshold}),
+    warning:"Somente tamanho dos objetos observados; páginas parciais não provam uso abaixo do limite. Não mede egress, fatura ou custo Google Cloud.",
+  });
+}
 async function inventoryPortfolio(request:Request,env:Env):Promise<Response>{
   const data=await request.json() as Record<string,unknown>;
   const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
@@ -2076,6 +2104,10 @@ export default {
     if(request.method==="POST" && url.pathname==="/api/media/removal/list"){
       try{return await listPortfolioRemovals(request,env);}
       catch(error){console.error("Media removal list failed",error);return json(env,{error:"Falha ao consultar solicitações."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/platform/media/inventory/scan"){
+      try{return await scanPortfolioCapacity(request,env);}
+      catch(error){console.error("Media capacity scan failed",error);return json(env,{error:"Falha no inventário; nenhum limite de custo foi inferido."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/platform/media/inventory"){
       try{return await inventoryPortfolio(request,env);}
