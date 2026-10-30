@@ -1661,6 +1661,107 @@ async function setTenantMediaUploadPause(request:Request,env:Env):Promise<Respon
   return json(env,{ok:true,tenantId,paused,auditId});
 }
 
+
+/** Review requests are RECORDS, never proof that the Storage object was deleted. */
+function validPortfolioObject(tenantId:string,objectPath:string):boolean{
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId))return false;
+  const prefix=`tenants/${tenantId}/public/portfolio/`;
+  if(!objectPath.startsWith(prefix))return false;
+  const file=objectPath.slice(prefix.length);
+  return /^[A-Za-z0-9][A-Za-z0-9._-]{0,125}\.(?:webp|png|jpg|jpeg)$/.test(file)
+    && !file.includes("..");
+}
+async function requestPortfolioRemoval(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const objectPath=typeof data.objectPath==="string"?data.objectPath:"";
+  const reason=typeof data.reason==="string"?data.reason.trim():"";
+  if(!validPortfolioObject(tenantId,objectPath)||reason.length<10||reason.length>500)
+    return json(env,{error:"Foto, tenant ou justificativa inválidos."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||!["tenant_owner","tenant_admin","platform_owner"].includes(actor.actorRole))
+    return json(env,{error:"Sem permissão para solicitar retirada."},403);
+  const tenant=await getDocument(env,token,`tenants/${tenantId}`);
+  if(!tenant)return json(env,{error:"Tenant não encontrado."},404);
+  const id=crypto.randomUUID(),auditId=crypto.randomUUID(),now=new Date().toISOString();
+  const record={tenantId,objectPath,reason,status:"pending_review",requestedBy:actor.actorId,
+    requestedByRole:actor.actorRole,createdAt:now};
+  const writes=[
+    {update:{name:docName(env,`tenants/${tenantId}/mediaRemovalRequests/${id}`),
+      fields:fields(record)},currentDocument:{exists:false}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+        action:"media.removal_request",resourceType:"mediaRemovalRequest",resourceId:id,
+        createdAt:now,after:{objectPath,status:"pending_review"}})},currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok)return json(env,{error:"Não foi possível registrar solicitação."},500);
+  return json(env,{ok:true,requestId:id,status:"pending_review",objectPath},201);
+}
+async function listPortfolioRemovals(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId))
+    return json(env,{error:"Tenant inválido."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Sem permissão."},403);
+  const rows=await listDocuments(env,token,`tenants/${tenantId}/mediaRemovalRequests`);
+  const requests=rows.slice(-250).map(item=>({
+    requestId:item.name.split("/").pop(),objectPath:str(item,"objectPath"),
+    status:str(item,"status"),reason:str(item,"reason"),createdAt:str(item,"createdAt"),
+    reviewedAt:str(item,"reviewedAt"),reviewReason:str(item,"reviewReason"),
+  })).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+  return json(env,{requests});
+}
+async function reviewPortfolioRemoval(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const requestId=typeof data.requestId==="string"?data.requestId:"";
+  const decision=data.decision==="approve"||data.decision==="reject"?data.decision:"";
+  const reviewReason=typeof data.reviewReason==="string"?data.reviewReason.trim():"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId)||!/^[0-9a-f-]{36}$/.test(requestId)||
+    !decision||reviewReason.length<10||reviewReason.length>500)
+    return json(env,{error:"Revisão incompleta."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||actor.actorRole!=="platform_owner")
+    return json(env,{error:"Somente Platform Owner pode revisar solicitações."},403);
+  const recordPath=`tenants/${tenantId}/mediaRemovalRequests/${requestId}`;
+  const record=await getDocument(env,token,recordPath);
+  if(!record||!record.updateTime||str(record,"tenantId")!==tenantId||
+    str(record,"status")!=="pending_review"||
+    !validPortfolioObject(tenantId,str(record,"objectPath")))
+    return json(env,{error:"Solicitação inexistente, inválida ou já revisada."},409);
+  const next=decision==="approve"?"approved_pending_manual_removal":"rejected";
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const writes=[
+    {update:{name:docName(env,recordPath),
+      fields:fields({status:next,reviewedAt:now,reviewedBy:actor.actorId,reviewReason})},
+      updateMask:{fieldPaths:["status","reviewedAt","reviewedBy","reviewReason"]},
+      currentDocument:{updateTime:record.updateTime}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+        action:"media.removal_review",resourceType:"mediaRemovalRequest",resourceId:requestId,
+        createdAt:now,before:{status:"pending_review"},after:{status:next},
+        reason:reviewReason})},currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ABORTED/.test(detail))
+      return json(env,{error:"Solicitação revisada simultaneamente."},409);
+    return json(env,{error:"Falha ao registrar revisão."},500);
+  }
+  // Approval does NOT invoke Storage delete; external/manual authorized removal is still required.
+  return json(env,{ok:true,requestId,status:next,storageDeleted:false});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1705,6 +1806,18 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
       try { return await manageTenantAdmin(request,env); }
       catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
+    }
+    if(request.method==="POST" && url.pathname==="/api/media/removal/request"){
+      try{return await requestPortfolioRemoval(request,env);}
+      catch(error){console.error("Media removal request failed",error);return json(env,{error:"Falha na solicitação."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/media/removal/list"){
+      try{return await listPortfolioRemovals(request,env);}
+      catch(error){console.error("Media removal list failed",error);return json(env,{error:"Falha ao consultar solicitações."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/platform/media/removal/review"){
+      try{return await reviewPortfolioRemoval(request,env);}
+      catch(error){console.error("Media removal review failed",error);return json(env,{error:"Falha ao revisar solicitação."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/platform/media/pause"){
       try{return await setTenantMediaUploadPause(request,env);}
