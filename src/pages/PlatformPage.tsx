@@ -31,6 +31,9 @@ export function PlatformPage() {
   const [reconcileReason,setReconcileReason]=useState("");
   const [reconcileWorking,setReconcileWorking]=useState(false);
   const [reconcileMessage,setReconcileMessage]=useState("");
+  const [uploadPauseReason,setUploadPauseReason]=useState("");
+  const [uploadPauseWorking,setUploadPauseWorking]=useState(false);
+  const [uploadPauseMessage,setUploadPauseMessage]=useState("");
 
   async function reload() {
     const list = await repository.listTenants();
@@ -125,6 +128,26 @@ export function PlatformPage() {
     }
   }
 
+  async function changeUploadPause(paused:boolean){
+    if(!user||!selected||uploadPauseWorking)return;
+    setUploadPauseWorking(true);setUploadPauseMessage("");
+    try{
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!base)throw new Error("Worker não configurado.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/platform/media/pause`,{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:selected.id,paused,reason:uploadPauseReason.trim()}),
+      });
+      const result=await response.json() as {error?:string};
+      if(!response.ok)throw new Error(result.error??"Falha ao alterar uploads.");
+      await reload();
+      setUploadPauseReason("");
+      setUploadPauseMessage(paused?"Novos uploads bloqueados. Arquivos existentes preservados.":"Uploads reabilitados para este tenant.");
+    }catch(err){setUploadPauseMessage(err instanceof Error?err.message:"Falha ao alterar uploads.");}
+    finally{setUploadPauseWorking(false);}
+  }
+
   async function reconcileUsage(event:React.FormEvent){
     event.preventDefault();
     if(!user||!selected||reconcileWorking)return;
@@ -165,6 +188,22 @@ export function PlatformPage() {
         <Link to={`/app/${tenant.slug}`}>Abrir tenant</Link>
       </article>)}
     </div>
+    <section aria-labelledby="media-pause-heading">
+      <h2 id="media-pause-heading">Controle emergencial de uploads</h2>
+      <p>Segurança operacional, não é limite por plano. Pausar bloqueia NOVOS uploads no Storage de um tenant, preservando arquivos e leituras existentes.</p>
+      <p>Tenant selecionado: <strong>{selected?.name??"Nenhum"}</strong>.
+        Estado: <strong>{selected?.mediaUploadsPaused?"Uploads pausados":"Uploads habilitados"}</strong></p>
+      <label>Motivo da alteração (10–300 caracteres)
+        <input minLength={10} maxLength={300} value={uploadPauseReason}
+          onChange={event=>setUploadPauseReason(event.target.value)}/>
+      </label>
+      <button className="button" type="button"
+        disabled={!selected||uploadPauseWorking||uploadPauseReason.trim().length<10}
+        onClick={()=>void changeUploadPause(!selected?.mediaUploadsPaused)}>
+        {uploadPauseWorking?"Atualizando…":selected?.mediaUploadsPaused?"Reabilitar uploads":"Pausar uploads"}
+      </button>
+      {uploadPauseMessage&&<p role="status">{uploadPauseMessage}</p>}
+    </section>
     <section aria-labelledby="reconcile-heading">
       <h2 id="reconcile-heading">Reconciliar contadores de equipe</h2>
       <p>Somente Platform Owner. Reconta profissionais e administradores com base nos documentos atuais, mantendo todos os dados e os planos. Use apenas em divergências confirmadas.</p>

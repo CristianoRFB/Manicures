@@ -17,6 +17,7 @@ export interface Tenant {
   name: string;
   status: TenantStatus;
   kind: "demo" | "real";
+  mediaUploadsPaused?: boolean;
   branding: {
     primary: string;
     accent: string;

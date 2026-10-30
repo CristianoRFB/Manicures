@@ -5,7 +5,9 @@ import {normalizePortfolioImage,validatePortfolioSource} from "../lib/media";
 
 type PortfolioImage={path:string;url:string};
 
-export function StudioPortfolio({tenantId,canManage=false}:{tenantId:string;canManage?:boolean}){
+export function StudioPortfolio({tenantId,canManage=false,uploadsPaused=false}:{
+  tenantId:string;canManage?:boolean;uploadsPaused?:boolean;
+}){
   const [photos,setPhotos]=useState<PortfolioImage[]>([]);
   const [loading,setLoading]=useState(true);
   const [selected,setSelected]=useState<File|null>(null);
@@ -35,7 +37,7 @@ export function StudioPortfolio({tenantId,canManage=false}:{tenantId:string;canM
   async function upload(event:FormEvent){
     event.preventDefault();
     const firebase=getFirebaseServices();
-    if(!firebase||!selected||sending)return;
+    if(!firebase||!selected||sending||uploadsPaused)return;
     try{validatePortfolioSource(selected);}
     catch(err){setError(err instanceof Error?err.message:"Arquivo inválido.");return;}
     setSending(true);setError("");setMessage("");
@@ -55,13 +57,14 @@ export function StudioPortfolio({tenantId,canManage=false}:{tenantId:string;canM
 
   return <section aria-labelledby="portfolio-heading">
     <h2 id="portfolio-heading">Portfólio de trabalhos</h2>
+    {canManage&&uploadsPaused&&<p role="alert">Novos uploads pausados pela plataforma. Fotos existentes continuam preservadas.</p>}
     {canManage&&<form className="form narrow" onSubmit={event=>void upload(event)}>
       <p>Fotos reais JPEG/PNG/WebP até 5 MiB; o navegador reduz a resolução e converte para WebP, sem enviar metadados originais (como GPS/EXIF). Conteúdo persistente.</p>
       <label>Nova foto
         <input type="file" accept="image/png,image/jpeg,image/webp"
           onChange={event=>setSelected(event.target.files?.[0]??null)}/>
       </label>
-      <button type="submit" className="button primary" disabled={!selected||sending}>
+      <button type="submit" className="button primary" disabled={!selected||sending||uploadsPaused}>
         {sending?"Publicando…":"Publicar foto"}
       </button>
     </form>}

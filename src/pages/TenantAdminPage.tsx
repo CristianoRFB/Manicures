@@ -543,7 +543,7 @@ export function TenantAdminPage() {
         <div className="row"><button className="button primary" type="submit" disabled={working || !evaluate(tenant,"professionals.manage").allowed}>{working?"Salvando…":editingProId?"Salvar alterações":"Adicionar profissional"}</button>
         {editingProId&&<button type="button" className="button" onClick={resetProfessionalForm}>Cancelar edição</button>}</div>
       </form>
-      <StudioPortfolio tenantId={tenant.id} canManage/>
+      <StudioPortfolio tenantId={tenant.id} canManage uploadsPaused={Boolean(tenant.mediaUploadsPaused)}/>
       <h2>Horários de atendimento por profissional</h2>
       <form className="form narrow" onSubmit={(event)=>void saveSchedule(event)}>
         <label>Profissional
