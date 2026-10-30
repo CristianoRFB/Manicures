@@ -341,6 +341,62 @@ describe("Trusted commercial and professional writes",()=>{
     expect((await claimInvite("client-convert",id)).status).toBe(409);
     expect((await db.doc("memberships/a_client-convert").get()).data()?.role).toBe("customer");
   });
+  async function mediaRemoval(path:string,uid:string,body:Record<string,unknown>){
+    return worker.fetch(new Request(`http://worker.local${path}`,{
+      method:"POST",headers:{"content-type":"application/json",
+        authorization:`Bearer ${await signedToken(uid)}`},body:JSON.stringify(body),
+    }),env());
+  }
+  it("admin abre pedido para foto de seu tenant; path traversal e tenant B negados",async()=>{
+    const path="tenants/a/public/portfolio/photo.webp";
+    const first=await mediaRemoval("/api/media/removal/request","ownerA",{
+      tenantId:"a",objectPath:path,reason:"Retirar foto por solicitação da titular",
+    });
+    expect(first.status).toBe(201);
+    expect((await first.json() as {status:string}).status).toBe("pending_review");
+    expect((await mediaRemoval("/api/media/removal/request","ownerB",{
+      tenantId:"a",objectPath:path,reason:"Tentativa de leitura entre studios",
+    })).status).toBe(403);
+    expect((await mediaRemoval("/api/media/removal/request","ownerA",{
+      tenantId:"a",objectPath:"tenants/b/public/portfolio/photo.webp",
+      reason:"Tentativa de remoção de mídia alheia",
+    })).status).toBe(400);
+    expect((await mediaRemoval("/api/media/removal/request","ownerA",{
+      tenantId:"a",objectPath:"tenants/a/public/portfolio/../secret.webp",
+      reason:"Tentativa de acesso por caminho relativo",
+    })).status).toBe(400);
+    expect((await mediaRemoval("/api/media/removal/list","ownerB",{tenantId:"a"})).status).toBe(403);
+    const listed=await mediaRemoval("/api/media/removal/list","ownerA",{tenantId:"a"});
+    expect(listed.status).toBe(200);
+    expect((await listed.json() as {requests:unknown[]}).requests).toHaveLength(1);
+  });
+  it("somente Platform Owner revisa pedido CAS; revisão não declara Storage deletado",async()=>{
+    const path="tenants/a/public/portfolio/photo.webp";
+    const created=await mediaRemoval("/api/media/removal/request","ownerA",{
+      tenantId:"a",objectPath:path,reason:"Solicitação formal de remoção do portfolio",
+    });
+    const id=(await created.json() as {requestId:string}).requestId;
+    const body={tenantId:"a",requestId:id,decision:"approve",
+      reviewReason:"Revisado e aprovado para execução manual posterior"};
+    expect((await mediaRemoval("/api/platform/media/removal/review","ownerA",body)).status).toBe(403);
+    expect((await mediaRemoval("/api/platform/media/removal/review","platform",{
+      ...body,tenantId:"b",
+    })).status).toBe(409);
+    const results=await Promise.all([
+      mediaRemoval("/api/platform/media/removal/review","platform",body),
+      mediaRemoval("/api/platform/media/removal/review","platform",body),
+    ]);
+    expect(results.filter(r=>r.status===200)).toHaveLength(1);
+    expect(results.filter(r=>r.status===409)).toHaveLength(1);
+    const success=await results.find(r=>r.status===200)!.json() as {status:string;storageDeleted:boolean};
+    expect(success.status).toBe("approved_pending_manual_removal");
+    expect(success.storageDeleted).toBe(false);
+    const db=getFirestore(adminApp);
+    expect((await db.doc(`tenants/a/mediaRemovalRequests/${id}`).get()).data()?.status)
+      .toBe("approved_pending_manual_removal");
+    const logs=await db.collection("tenants/a/auditLogs").get();
+    expect(logs.docs.some(x=>x.data().action==="media.removal_review")).toBe(true);
+  });
   it("upload freeze é reservado ao Platform Owner, tenant-scoped e auditado",async()=>{
     const request=async(uid:string,tenantId:string,paused:boolean)=>worker.fetch(new Request(
       "http://worker.local/api/platform/media/pause",{
