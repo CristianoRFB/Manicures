@@ -518,7 +518,12 @@ async function assignPlan(request: Request, env: Env): Promise<Response> {
 
   const previous = parseCommercial(tenant) ?? null;
   const now = new Date();
-  const trialUntil = status === "trial" ? new Date(now.getTime() + 14*24*60*60*1000).toISOString() : null;
+  // Idempotent edits may change overrides or notes, but must NEVER silently
+  // extend an already running (or expired) 14-day trial.
+  const trialUntil = status === "trial"
+    ? (previous?.subscriptionStatus === "trial" ? previous.trialUntil ?? null
+      : new Date(now.getTime() + 14*24*60*60*1000).toISOString())
+    : null;
   const changes: CommercialState = {
     planId, subscriptionStatus: status as CommercialState["subscriptionStatus"],
     trialUntil,
