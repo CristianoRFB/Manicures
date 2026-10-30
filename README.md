@@ -3,7 +3,7 @@
 Base React/Vite/TypeScript para o SaaS Manicure Multi-Tenant White-Label.
 
 ## Estado
-Esta branch contém o CORE multi-tenant e implementação **parcial** do Global Standard v01. Não está implantada em produção.
+A `main` contém o CORE multi-tenant e implementação **parcial** do Global Standard v01. Não está implantada em produção.
 
 - Firebase Auth + recuperação de senha, memberships/RBAC e Platform Owner;
 - Firestore e Storage Rules, com testes de isolamento Tenant A × Tenant B;

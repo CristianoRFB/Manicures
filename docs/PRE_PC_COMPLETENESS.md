@@ -40,10 +40,10 @@ As dezessete entregas promovidas para CODE_COMPLETE **só permanecem assim com C
 - Backend continua enforcement: Rules + Worker; esconder botão não concede permissão.
 - Staff/profissional/tenant têm isolamento testado A×B.
 - Worker local Auth Emulator só é permitido para `manicure-demo` em `127.0.0.1`, com sessão reconhecida pelo Auth Emulator.
-- Produção e merge não foram alterados.
+- PR #1 integrada por squash na `main` no SHA `9eafdccf2f9cd7298822f9f4cbe449b91f6e49b7`; **produção e dados reais não foram alterados**.
 
 ## Próxima rodada
-Continuar do HEAD verificado da branch `feat/core-multitenant-firebase`. Não repetir CORE nem auditorias anteriores.
+Continuar do HEAD verificado da `main` após a integração; não repetir CORE nem auditorias anteriores.
 Priorizar GCS staging/IAM, quota/custos/egress monitorados, tratamento de legados, performance/acessibilidade, QA em dispositivos e screenshots reais em staging; manter exclusão desativada em produção até homologação.
 
 ## Critério de integração seguro
