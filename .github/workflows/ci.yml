@@ -34,8 +34,14 @@ jobs:
         with:
           node-version: 22
       - run: npm install --no-audit --no-fund
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
       - run: npx playwright install --with-deps chromium
       - run: npm run qa:browser
+      - name: Test authenticated screens with synthetic Firebase tenants
+        run: npx firebase --project manicure-demo emulators:exec --only auth,firestore,storage "node scripts/seed-emulator.mjs && npm run qa:browser:auth"
       - name: Upload actual demo screenshots and browser report
         if: always()
         uses: actions/upload-artifact@v4
@@ -44,6 +50,7 @@ jobs:
           path: |
             qa-evidence/screenshots/
             qa-report/
+            qa-report-auth/
             test-results/
           retention-days: 14
           if-no-files-found: warn
