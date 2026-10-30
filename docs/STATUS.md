@@ -20,7 +20,7 @@ Ver `docs/PRE_PC_COMPLETENESS.md`.
 ## Incompleto (não afirmar pronto)
 - Reservas guest antigas não são reivindicadas automaticamente pelo cliente logado, por segurança.
 - Convites de entrega manual e transição de membros existentes implementados; transferências de tenant_owner deliberadamente proibidas, sem envio automático de e-mail.
-- Mídia: galeria paginada (12 por vez), Storage Rules por papel/tenant, WebP sem metadados originais e bloqueio de upload em incidentes auditado pelo Platform Owner; faltam tratamento legacy, remoção LGPD autorizada, orçamento/egress e QA visual (docs/MEDIA_POLICY.md).
+- Mídia: galeria paginada, Storage Rules por tenant, fotos imutáveis, WebP sem EXIF, pausa de upload e fluxo de solicitação/revisão de remoção auditado; **exclusão física/revogação NÃO implementadas**, além de custos/egress e QA (docs/MEDIA_POLICY.md).
 - Trial de 14 dias mantém trialUntil em edições repetidas; UI avisa vencimento, expiração e suspensões. Estado comercial continua manual, sem cobrança automática.
 - Browser real mobile/desktop, screenshots reais, QA visual e deploy/staging.
 

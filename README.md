@@ -16,7 +16,8 @@ Esta branch contém o CORE multi-tenant e implementação **parcial** do Global 
 - convites seguros e auditados de 48 horas para staff, inclusive conversão verificada de customer/professional/admin; quota no aceite;
 - reconciliação de contadores legados exclusiva do Platform Owner, sem alterar dados da equipe;
 - trial de 14 dias sem prorrogação silenciosa, avisos de vencimento/estado;
-- controle emergencial de uploads por tenant auditado e galeria paginada com 12 fotos por página.
+- controle emergencial de uploads por tenant auditado e galeria paginada com 12 fotos por página;
+- solicitações e revisões de retirada de foto com caminho tenant-scoped, audit log e CAS; **a exclusão física não está implementada**.
 
 **Métrica de engenharia pré-PC:** 38/42 (90,5%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
 

@@ -25,13 +25,13 @@ As quatorze entregas promovidas para CODE_COMPLETE **só permanecem assim com CI
 | 13 | Mudança segura de papel em membership existente por novo convite e aceite verificado | Worker /api/invitations/accept e Rules | Worker emulator: customer→admin, admin→professional, quotas, histórico, bloqueio tenant_owner |
 | 14 | Trial idempotente e visibilidade de expiração/suspensão | Worker /api/admin/plans/assign, subscriptionNotice, TenantAdminPage | Worker emulator: não prorroga trial; testes de aviso e bloqueio de estado |
 
-**Melhorias sem adicionar ao numerador:** Galeria persistente de imagens reais e Storage Rules separadas por papel e tenant (mídia ainda com governança parcial), recuperação oficial de senha, Auth Emulator local com guardas e login testado, histórico agrupado para admin, comprovante in-session, validação de PII no booking, no-show após horário, responsividade CSS, correção de estados de rota.
+**Melhorias sem adicionar ao numerador:** Workflow de solicitação/revisão de retirada de mídia, auditado e não destrutivo, e reforço da imutabilidade no Storage Emulator;  Galeria persistente de imagens reais e Storage Rules separadas por papel e tenant (mídia ainda com governança parcial), recuperação oficial de senha, Auth Emulator local com guardas e login testado, histórico agrupado para admin, comprovante in-session, validação de PII no booking, no-show após horário, responsividade CSS, correção de estados de rota.
 
 ## Pendências ainda reais (4/42)
 - Histórico do cliente autenticado somente para reservas criadas com vínculo verificado; reservas guest anteriores exigem processo específico de titularidade e não podem ser reivindicadas por telefone.
 - Convites verificados também permitem migração de membership existente customer/professional/admin sem acesso direto nem apagar histórico. Transferência de tenant_owner e novos papéis fora do catálogo NÃO são suportados, deliberadamente.
 - Trial aprovado de 14 dias é idempotente em edições e possui avisos no painel, inclusive expirado/suspenso; operação manual de estado por Platform Owner. Cobrança e renovação automáticas permanecem DEFERRED.
-- Mídia: circuit breaker de uploads por tenant (Platform Owner) com Rules, auditoria e preservação de leitura, além de paginação pública de 12 imagens; ainda faltam medição de egress/capacidade, remoção LGPD autorizada e legados (docs/MEDIA_POLICY.md).
+- Mídia: circuit breaker, galeria paginada e solicitação/revisão de retirada com CAS e isolamento A×B implementados. Imutabilidade de objetos verificada no Storage Emulator. **Sem exclusão física, revogação, tombstone final, LGPD ponta a ponta ou telemetria de custo** (docs/MEDIA_POLICY.md).
 - QA/browser mobile + screenshots reais e staging/deploy (external gates não equivalem a DONE).
 - Dependências de planos NEXT/DEFERRED não são declaradas implementadas.
 

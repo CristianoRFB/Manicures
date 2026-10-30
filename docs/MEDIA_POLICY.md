@@ -21,3 +21,20 @@
 
 ## Prova antes de publicar produção
 Homologar e medir em ambiente seguro: formato real e capacidade, links públicos, upload web/mobile, acesso A/B, permissões de clientes/profissionais, egress, alertas de quota, privacidade/EXIF, logs e fluxo de revogação LGPD. Não foi feito deploy nem teste real de navegador nesta etapa.
+
+## Solicitação de remoção de portfólio — etapa implementada
+- Proprietário, administrador do tenant ou Platform Owner abre `POST /api/media/removal/request` com `tenantId`, `objectPath` validado dentro de `tenants/{tenantId}/public/portfolio/` e motivo entre 10 e 500 caracteres.
+- O Worker registra `mediaRemovalRequests/{requestId}` e `auditLogs` atomicamente. Motivo e detalhes do solicitante não ficam disponíveis por leitura direta nas Firestore Rules.
+- O solicitante pode acompanhar via `POST /api/media/removal/list`, somente com membership autorizada. O Platform Owner revisa pela UI `/platform` usando `POST /api/platform/media/removal/review`, com justificativa e controle CAS.
+- Estados: `pending_review` → `approved_pending_manual_removal` **ou** `rejected`. Uma aprovação **não** faz delete físico nem revoga URL/token de download, nem representa LGPD concluída. Há pendência de execução autorizada, prova do provedor e tombstone final.
+- Fotos existentes são imutáveis pelas Storage Rules: novos uploads permitidos somente com `resource == null`; `update` e `delete` negados para clientes, proprietários e admins via SDK. Exclusão física futura exige ferramenta privilegiada e aprovação específica, com evidência.
+- Para questões urgentes de privacidade, a simples aprovação do pedido não basta para impedir visualizações ou URLs antigas. **Não declarar remediação concluída sem remoção/revogação real.**
+
+## Operação de revisão
+1. Verificar identidade/solicitação e finalidade/obrigações de retenção; `UNKNOWN_LEGACY` nunca recebe exclusão automática.
+2. Confirmar o tenant e o caminho exato da mídia, consentimentos e eventual reserva legal.
+3. Registrar aprovação ou rejeição com motivo; salvar evidência na trilha auditável.
+4. Se aprovado, executar procedimento físico com credencial administrativa autorizada, conferência de geração/hash e estado do objeto, confirmação do provedor e revogação de URLs conforme aplicável. **Esse passo não está automatizado nesta entrega.**
+5. Só após comprovação externa, registrar encerramento em um futuro fluxo de finalização/tombstone auditado, nunca pela alegação do usuário.
+
+**Limitações ainda abertas:** inventário/medição reconciliados com Storage, custos e egress, remoção/revogação física com retries e idempotência, LGPD ponta a ponta, tratamento de legados, QA real. Nenhuma retenção genérica/TTL foi ativada.

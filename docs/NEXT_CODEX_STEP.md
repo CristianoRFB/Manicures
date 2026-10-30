@@ -6,7 +6,7 @@ Os quatorze módulos concluídos desde 24/42 estão detalhados em `docs/PRE_PC_C
 
 Foco do código faltante:
 1. Transição customer/professional/admin por novo convite verificado já existe, sem mudança arbitrária de tenant_owner. Próximos passos: convites com envio transacional quando aprovado, recuperação administrativa e casos legados realmente excepcionais.
-2. Governança de mídia: recodificação WebP, galeria paginada e pausa emergencial por tenant (Platform Owner) concluídas; pendentes imagens legadas, exclusão/anonimização LGPD com workflow autorizado, custos/capacidade/egress.
+2. Governança de mídia: recodificação WebP, galeria paginada, mídia imutável, pausa emergencial e solicitação/revisão auditada já existem; pendentes **exclusão física autorizada com prova de Storage**, revogação de URLs, tombstones, imagens legadas, custos/capacidade/egress.
 3. Trial de 14 dias idempotente, aviso de vencimento e operação manual de estado já existem; pendente homologação operacional de suspensão/reativação, migração excepcional e testes adicionais de concorrência.
 4. QA real de browser mobile/desktop, screenshots autênticas e staging. Não simular screenshots.
 
