@@ -1718,6 +1718,7 @@ async function listPortfolioRemovals(request:Request,env:Env):Promise<Response>{
     requestId:item.name.split("/").pop(),objectPath:str(item,"objectPath"),
     status:str(item,"status"),reason:str(item,"reason"),createdAt:str(item,"createdAt"),
     reviewedAt:str(item,"reviewedAt"),reviewReason:str(item,"reviewReason"),
+    storageGeneration:str(item,"storageGeneration"),deletedAt:str(item,"deletedAt"),
   })).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
   return json(env,{requests});
 }
