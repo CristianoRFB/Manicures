@@ -1336,6 +1336,122 @@ async function cancelCustomerAppointment(request:Request,env:Env):Promise<Respon
   return json(env,{ok:true,appointmentId,status:"cancelled"});
 }
 
+
+/** A phone match and knowledge of booking ID never prove ownership. */
+async function requestGuestHistoryLink(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const appointmentId=typeof data.appointmentId==="string"?data.appointmentId:"";
+  const phone=typeof data.bookingPhone==="string"?data.bookingPhone.replace(/\D/g,""):"";
+  if(![tenantId,appointmentId].every(v=>/^[A-Za-z0-9_-]{1,100}$/.test(v))||!/^[0-9]{10,15}$/.test(phone))
+    return json(env,{error:"Informe protocolo e telefone originais válidos."},400);
+  const uid=await verifiedCustomerIdentity(request,env);
+  if(!uid)return json(env,{error:"E-mail confirmado necessário."},401);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const [tenant,member,appointment]=await Promise.all([
+    getDocument(env,token,"tenants/"+tenantId),
+    customerMembership(env,token,tenantId,uid),
+    getDocument(env,token,"tenants/"+tenantId+"/appointments/"+appointmentId),
+  ]);
+  if(!tenant||str(tenant,"status")!=="active"||!member)
+    return json(env,{error:"Perfil de cliente indisponível neste studio."},403);
+  const generic={ok:true,message:"Se os dados conferirem, o studio poderá analisar após validar sua identidade por outro canal."};
+  if(!appointment||str(appointment,"tenantId")!==tenantId||str(appointment,"customerId")||
+    str(appointment,"customerPhone").replace(/\D/g,"")!==phone)return json(env,generic,202);
+  const id=appointmentId+"_"+uid,path="tenants/"+tenantId+"/guestClaims/"+id;
+  if(await getDocument(env,token,path))return json(env,generic,202);
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const writes=[
+    {update:{name:docName(env,path),fields:fields({tenantId,appointmentId,
+      customerId:uid,status:"pending_review",createdAt:now})},currentDocument:{exists:false}},
+    {update:{name:docName(env,"tenants/"+tenantId+"/auditLogs/"+auditId),
+      fields:fields({tenantId,actorId:uid,actorRole:"customer",action:"guest_claim.request",
+        resourceType:"guestClaim",resourceId:id,createdAt:now})},currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization="Bearer "+token;
+  const result=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!result.ok){
+    const body=await result.text();
+    if([409,412].includes(result.status)||/ALREADY_EXISTS|FAILED_PRECONDITION/.test(body))
+      return json(env,generic,202);
+    throw new Error("Falha ao registrar pedido de histórico.");
+  }
+  return json(env,generic,202);
+}
+async function listGuestHistoryLinks(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId))return json(env,{error:"Tenant inválido."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Sem permissão."},403);
+  const rows=await listDocuments(env,token,"tenants/"+tenantId+"/guestClaims");
+  return json(env,{claims:rows.slice(-250).map(item=>({
+    claimId:item.name.split("/").pop(),appointmentId:str(item,"appointmentId"),
+    customerId:str(item,"customerId"),status:str(item,"status"),
+    createdAt:str(item,"createdAt"),reviewedAt:str(item,"reviewedAt"),
+  })).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))});
+}
+async function reviewGuestHistoryLink(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const claimId=typeof data.claimId==="string"?data.claimId:"";
+  const decision=data.decision==="approve"||data.decision==="reject"?data.decision:"";
+  const reason=typeof data.reason==="string"?data.reason.trim():"";
+  const method=data.verificationMethod==="in_person"||
+    data.verificationMethod==="independent_callback"?data.verificationMethod:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId)||!/^[A-Za-z0-9_-]{3,201}$/.test(claimId)||
+    !decision||reason.length<10||reason.length>500||
+    (decision==="approve"&&(data.identityVerifiedOffline!==true||!method)))
+    return json(env,{error:"Revisão requer justificativa e verificação independente na aprovação."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor)return json(env,{error:"Somente gestão do studio pode revisar."},403);
+  const path="tenants/"+tenantId+"/guestClaims/"+claimId;
+  const claim=await getDocument(env,token,path);
+  if(!claim||!claim.updateTime||str(claim,"tenantId")!==tenantId||
+    str(claim,"status")!=="pending_review")return json(env,{error:"Pedido inexistente ou já revisado."},409);
+  const appointmentId=str(claim,"appointmentId"),customerId=str(claim,"customerId");
+  if(![appointmentId,customerId].every(v=>/^[A-Za-z0-9_-]{1,100}$/.test(v))||
+    claimId!==appointmentId+"_"+customerId)return json(env,{error:"Pedido inconsistente."},409);
+  const [member,appointment]=await Promise.all([
+    customerMembership(env,token,tenantId,customerId),
+    getDocument(env,token,"tenants/"+tenantId+"/appointments/"+appointmentId),
+  ]);
+  if(decision==="approve"&&(!member||!appointment||!appointment.updateTime||
+    str(appointment,"tenantId")!==tenantId||str(appointment,"customerId")))
+    return json(env,{error:"Agendamento vinculado ou cliente indisponível."},409);
+  const now=new Date().toISOString(),status=decision==="approve"?"approved":"rejected",auditId=crypto.randomUUID();
+  const writes:Array<Record<string,unknown>>=[
+    {update:{name:docName(env,path),fields:fields({status,reviewedBy:actor.actorId,
+      reviewReason:reason,reviewedAt:now,verificationMethod:method||"not_applicable"})},
+      updateMask:{fieldPaths:["status","reviewedBy","reviewReason","reviewedAt","verificationMethod"]},
+      currentDocument:{updateTime:claim.updateTime}},
+    {update:{name:docName(env,"tenants/"+tenantId+"/auditLogs/"+auditId),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+        action:"guest_claim.review",resourceType:"guestClaim",resourceId:claimId,
+        createdAt:now,reason,before:{status:"pending_review"},after:{status,appointmentId,
+          customerId,verificationMethod:method}})},currentDocument:{exists:false}},
+  ];
+  if(decision==="approve")writes.push({
+    update:{name:docName(env,"tenants/"+tenantId+"/appointments/"+appointmentId),
+      fields:fields({customerId,updatedAt:now})},
+    updateMask:{fieldPaths:["customerId","updatedAt"]},
+    currentDocument:{updateTime:appointment!.updateTime},
+  });
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization="Bearer "+token;
+  const result=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!result.ok){
+    const body=await result.text();
+    if([409,412].includes(result.status)||/FAILED_PRECONDITION|ABORTED/.test(body))
+      return json(env,{error:"Pedido ou reserva alterado simultaneamente."},409);
+    throw new Error("Falha ao revisar pedido de histórico.");
+  }
+  return json(env,{ok:true,status,claimId,appointmentId});
+}
+
 async function tenantQuotaOverview(request:Request,env:Env):Promise<Response>{
   const data=await request.json() as Record<string,unknown>;
   const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
@@ -1915,6 +2031,18 @@ export default {
     if(request.method==="POST" && url.pathname==="/api/invitations/accept"){
       try{return await redeemStaffInvitation(request,env);}
       catch(error){console.error("Invite acceptance failed",error);return json(env,{error:"Falha ao aceitar convite."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/customers/guest-claims/request"){
+      try{return await requestGuestHistoryLink(request,env);}
+      catch(error){console.error("Guest claim request failed",error);return json(env,{error:"Falha ao solicitar histórico."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/guest-claims/list"){
+      try{return await listGuestHistoryLinks(request,env);}
+      catch(error){console.error("Guest claim list failed",error);return json(env,{error:"Falha na consulta."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/guest-claims/review"){
+      try{return await reviewGuestHistoryLink(request,env);}
+      catch(error){console.error("Guest claim review failed",error);return json(env,{error:"Falha na revisão."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/customers/enroll"){
       try{return await enrollCustomer(request,env);}
