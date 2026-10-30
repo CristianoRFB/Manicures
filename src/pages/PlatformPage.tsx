@@ -44,6 +44,10 @@ export function PlatformPage() {
   const [inventoryToken,setInventoryToken]=useState<string|null>(null);
   const [inventoryBusy,setInventoryBusy]=useState(false);
   const [inventoryMessage,setInventoryMessage]=useState("");
+  const [capacityThresholdMiB,setCapacityThresholdMiB]=useState("");
+  const [capacityBusy,setCapacityBusy]=useState(false);
+  const [capacityReport,setCapacityReport]=useState("");
+  const [capacityContinuation,setCapacityContinuation]=useState<string|null>(null);
   const [deletionConfirmation,setDeletionConfirmation]=useState("");
   const [deletionReason,setDeletionReason]=useState("");
 
@@ -66,6 +70,7 @@ export function PlatformPage() {
   useEffect(()=>{
     setMediaObjects([]);setInventoryToken(null);setRemovalRows([]);
     setDeletionConfirmation("");setDeletionReason("");
+    setCapacityReport("");setCapacityContinuation(null);
   },[selectedId]);
 
   useEffect(() => {
@@ -199,6 +204,37 @@ export function PlatformPage() {
     }catch(err){setInventoryMessage(err instanceof Error?err.message:"Erro no inventário.");}
     finally{setInventoryBusy(false);}
   }
+  async function scanMediaCapacity(continuation=false){
+    if(!selected||!user||capacityBusy)return;
+    setCapacityBusy(true);setCapacityReport("");
+    try{
+      const threshold=capacityThresholdMiB.trim();
+      const alertThresholdBytes=threshold?Math.round(Number(threshold)*1024*1024):undefined;
+      if(alertThresholdBytes!==undefined&&(!Number.isSafeInteger(alertThresholdBytes)||alertThresholdBytes<1))
+        throw new Error("Informe limiar em MiB positivo e seguro.");
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!base)throw new Error("Worker não configurado.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/platform/media/inventory/scan`,{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:selected.id,maxPages:10,
+          ...(continuation&&capacityContinuation?{pageToken:capacityContinuation}:{}),
+          ...(alertThresholdBytes?{alertThresholdBytes}:{})}),
+      });
+      const data=await response.json() as {error?:string;metrics?:{objectCount:number;totalBytes:number;
+        persistentCount:number;legacyCount:number};complete?:boolean;nextPageToken?:string|null;
+        observedThresholdExceeded?:boolean;pagesScanned?:number};
+      if(!response.ok||!data.metrics)throw new Error(data.error??"Falha na varredura.");
+      setCapacityContinuation(data.nextPageToken??null);
+      setCapacityReport(`Somente este lote: ${data.metrics.objectCount} objetos e
+        ${(data.metrics.totalBytes/1024/1024).toFixed(2)} MiB em
+        ${data.pagesScanned??0} página(s). Legados: ${data.metrics.legacyCount}.
+        ${data.observedThresholdExceeded?"LIMIAR OPERACIONAL EXCEDIDO nos bytes observados.":""}
+        ${data.complete?"Consulta concluída.":"Há mais páginas: total parcial."}
+        Sem estimativa de egress ou fatura.`);
+    }catch(err){setCapacityReport(err instanceof Error?err.message:"Falha na varredura.");}
+    finally{setCapacityBusy(false);}
+  }
   async function executeMediaRemoval(row:RemovalRequest){
     if(!selected||!user||removalBusy||deletionConfirmation!=="REMOVER_MIDIA_APROVADA"||
       deletionReason.trim().length<10)return;
@@ -303,6 +339,21 @@ export function PlatformPage() {
         {inventoryToken?" Há mais páginas: estes números são parciais.":" Listagem de páginas concluída nesta consulta."}
         Isso não representa egress nem cobrança.
       </p>}
+      <div className="form narrow">
+        <h3>Varredura operacional de capacidade</h3>
+        <p>Máximo de 10 páginas por solicitação. Limiar opcional em MiB é alerta de operação,
+          não quota comercial nem previsão de custo.</p>
+        <label>Limiar operacional de alerta (MiB; opcional)
+          <input type="number" min="0.01" step="any" value={capacityThresholdMiB}
+            onChange={event=>setCapacityThresholdMiB(event.target.value)} /></label>
+        <div className="row">
+          <button className="button" type="button" disabled={!selected||capacityBusy}
+            onClick={()=>void scanMediaCapacity(false)}>Verificar capacidade observada</button>
+          {capacityContinuation&&<button className="button" type="button" disabled={capacityBusy}
+            onClick={()=>void scanMediaCapacity(true)}>Continuar varredura</button>}
+        </div>
+        {capacityReport&&<p role="status">{capacityReport}</p>}
+      </div>
       {mediaObjects.map(item=><p key={item.path}>
         <code>{item.path.split("/").pop()}</code> · geração <code>{item.generation}</code> ·
         {item.size} bytes · {item.mediaClass}
