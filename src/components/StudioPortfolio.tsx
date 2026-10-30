@@ -1,6 +1,7 @@
 import {useCallback,useEffect,useState,type FormEvent} from "react";
 import {getDownloadURL,list,ref,uploadBytes} from "firebase/storage";
 import {getFirebaseServices} from "../lib/firebase";
+import {useAuth} from "../auth/AuthProvider";
 import {normalizePortfolioImage,validatePortfolioSource} from "../lib/media";
 
 type PortfolioImage={path:string;url:string};
@@ -8,6 +9,10 @@ type PortfolioImage={path:string;url:string};
 export function StudioPortfolio({tenantId,canManage=false,uploadsPaused=false}:{
   tenantId:string;canManage?:boolean;uploadsPaused?:boolean;
 }){
+  const {user}=useAuth();
+  const [removalPath,setRemovalPath]=useState("");
+  const [removalReason,setRemovalReason]=useState("");
+  const [removalWorking,setRemovalWorking]=useState(false);
   const [photos,setPhotos]=useState<PortfolioImage[]>([]);
   const [loading,setLoading]=useState(true);
   const [selected,setSelected]=useState<File|null>(null);
@@ -71,6 +76,26 @@ export function StudioPortfolio({tenantId,canManage=false,uploadsPaused=false}:{
     finally{setSending(false);}
   }
 
+  async function requestRemoval(event:FormEvent){
+    event.preventDefault();
+    if(!user||!canManage||removalWorking||!removalPath)return;
+    setRemovalWorking(true);setError("");setMessage("");
+    try{
+      const api=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!api)throw new Error("Worker não configurado.");
+      const response=await fetch(`${api.replace(/\/$/,"")}/api/media/removal/request`,{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId,objectPath:removalPath,reason:removalReason.trim()}),
+      });
+      const data=await response.json() as {error?:string;requestId?:string};
+      if(!response.ok)throw new Error(data.error??"Não foi possível registrar a solicitação.");
+      setMessage(`Solicitação ${data.requestId??""} registrada para revisão da plataforma. A imagem NÃO foi apagada.`);
+      setRemovalPath("");setRemovalReason("");
+    }catch(err){setError(err instanceof Error?err.message:"Falha ao solicitar remoção.");}
+    finally{setRemovalWorking(false);}
+  }
+
   return <section aria-labelledby="portfolio-heading">
     <h2 id="portfolio-heading">Portfólio de trabalhos</h2>
     {canManage&&uploadsPaused&&<p role="alert">Novos uploads pausados pela plataforma. Fotos existentes continuam preservadas.</p>}
@@ -84,11 +109,29 @@ export function StudioPortfolio({tenantId,canManage=false,uploadsPaused=false}:{
         {sending?"Publicando…":"Publicar foto"}
       </button>
     </form>}
+    {removalPath&&canManage&&<form className="form narrow" onSubmit={event=>void requestRemoval(event)}>
+      <h3>Solicitar retirada de foto</h3>
+      <p>Arquivo: <code>{removalPath.split("/").pop()}</code>. A solicitação é auditada e exige revisão da plataforma. Não exclui dados automaticamente.</p>
+      <label>Justificativa (mínimo 10 caracteres)
+        <textarea required minLength={10} maxLength={500} rows={3}
+          value={removalReason} onChange={event=>setRemovalReason(event.target.value)}/>
+      </label>
+      <div className="row">
+        <button className="button primary" type="submit" disabled={removalWorking||removalReason.trim().length<10}>
+          {removalWorking?"Registrando…":"Enviar para revisão"}
+        </button>
+        <button className="button" type="button" onClick={()=>{setRemovalPath("");setRemovalReason("");}}>Cancelar</button>
+      </div>
+    </form>}
     {message&&<p role="status">{message}</p>}
     {error&&<p role="alert">{error}</p>}
     {loading?<p role="status">Carregando fotos publicadas…</p>:photos.length>0?
       <div className="portfolio-grid">{photos.map(photo=><figure className="portfolio-photo" key={photo.path}>
         <img src={photo.url} alt="Trabalho publicado no portfólio do studio" loading="lazy" decoding="async"/>
+      {canManage&&<figcaption><button className="button" type="button"
+          onClick={()=>{setRemovalPath(photo.path);setRemovalReason("");setMessage("");setError("");}}>
+          Solicitar retirada
+        </button></figcaption>}
       </figure>)}
         {nextPageToken&&<button className="button" type="button" disabled={loadingMore}
           onClick={()=>void loadMore()}>{loadingMore?"Carregando…":"Carregar mais fotos"}</button>}
