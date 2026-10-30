@@ -14,6 +14,32 @@ export interface StoredObject {
   metadata:Record<string,string>;
   crc32c?:string;
 }
+export interface StorageInventoryStats {
+  objectCount:number;totalBytes:number;
+  persistentCount:number;persistentBytes:number;
+  legacyCount:number;legacyBytes:number;
+  otherCount:number;otherBytes:number;
+}
+export function summarizeStoragePage(objects:StoredObject[]):StorageInventoryStats{
+  const totals:StorageInventoryStats={objectCount:0,totalBytes:0,
+    persistentCount:0,persistentBytes:0,legacyCount:0,legacyBytes:0,
+    otherCount:0,otherBytes:0};
+  for(const object of objects){
+    if(!Number.isSafeInteger(object.size)||object.size<0||
+      !Number.isSafeInteger(totals.totalBytes+object.size))
+      throw new Error("Tamanho de Storage inválido ou acima de precisão segura.");
+    totals.objectCount++;totals.totalBytes+=object.size;
+    const persistent=object.metadata.mediaClass==="PERSISTENT_BUSINESS"&&
+      object.metadata.metadataPolicy==="reencoded_no_exif";
+    const legacy=object.metadata.mediaClass===undefined||
+      object.metadata.mediaClass==="UNKNOWN_LEGACY"||
+      !object.metadata.metadataPolicy;
+    if(persistent){totals.persistentCount++;totals.persistentBytes+=object.size;}
+    else if(legacy){totals.legacyCount++;totals.legacyBytes+=object.size;}
+    else{totals.otherCount++;totals.otherBytes+=object.size;}
+  }
+  return totals;
+}
 export interface InventoryPage {
   objects:StoredObject[];
   nextPageToken:string|null;
