@@ -12,6 +12,7 @@ A versão canônica continua em:
 O CORE multi-tenant foi implementado e validado. O Global Standard v01 **já está parcialmente implementado** nesta branch, conforme autorização posterior do usuário.
 
 Para estado efetivo de código e pendências, consultar `docs/STATUS.md` e `docs/PRE_PC_COMPLETENESS.md`. Para homologação sintética consultar `docs/PC_FINAL_TEST_SESSION.md`.
+Para ciclo de vida de mídia e procedimentos protegidos, consultar `docs/MEDIA_POLICY.md` e `docs/STORAGE_DELETION_RUNBOOK.md`. A exclusão física de mídia foi exercitada no Firebase Storage Emulator, mas fica desabilitada por padrão e não foi homologada em staging ou produção.
 Não declarar COMPLETE ou DEPLOYED somente por CI verde.
 
 ## Fonte de verdade
