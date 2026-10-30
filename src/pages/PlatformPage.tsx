@@ -61,6 +61,8 @@ export function PlatformPage() {
   }, [user]);
 
   const selected = tenants.find((t) => t.id === selectedId);
+  const mediaBytesLoaded=mediaObjects.reduce((sum,item)=>sum+item.size,0);
+  const mediaLegacyLoaded=mediaObjects.filter(item=>item.mediaClass==="UNKNOWN_LEGACY").length;
   useEffect(()=>{
     setMediaObjects([]);setInventoryToken(null);setRemovalRows([]);
     setDeletionConfirmation("");setDeletionReason("");
@@ -294,6 +296,13 @@ export function PlatformPage() {
       {inventoryToken&&<button type="button" className="button" disabled={inventoryBusy}
         onClick={()=>void loadMediaInventory(true)}>Próxima página</button>}
       {inventoryMessage&&<p role="status">{inventoryMessage}</p>}
+      {mediaObjects.length>0&&<p role="status">
+        Páginas já carregadas: <strong>{mediaObjects.length} arquivos</strong>,
+        <strong> {(mediaBytesLoaded/1024/1024).toFixed(2)} MiB</strong> de metadados de armazenamento;
+        <strong> {mediaLegacyLoaded} sem classificação moderna</strong>.
+        {inventoryToken?" Há mais páginas: estes números são parciais.":" Listagem de páginas concluída nesta consulta."}
+        Isso não representa egress nem cobrança.
+      </p>}
       {mediaObjects.map(item=><p key={item.path}>
         <code>{item.path.split("/").pop()}</code> · geração <code>{item.generation}</code> ·
         {item.size} bytes · {item.mediaClass}
