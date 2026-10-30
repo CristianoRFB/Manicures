@@ -3,7 +3,7 @@
 ## Fases
 - CORE_FIRST: implementado e validado anteriormente (evidência CI 40509478867).
 - GLOBAL_STANDARD_V01: em implementação nesta branch; pricing, catálogo, trial, demo, quotas, overrides, plano manual e downgrade sem exclusão de dados existem no código.
-- Produção: **NÃO DEPLOYED**. PR ainda draft e sem merge na main.
+- Produção: **NÃO DEPLOYED**. PR #1 foi integrada por squash na `main` (commit `9eafdccf2f9cd7298822f9f4cbe449b91f6e49b7`). Merge de código NÃO é deploy.
 
 ## Medição técnica
 **41/42 = 97,6% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
