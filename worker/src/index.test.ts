@@ -397,6 +397,72 @@ describe("Trusted commercial and professional writes",()=>{
     const logs=await db.collection("tenants/a/auditLogs").get();
     expect(logs.docs.some(x=>x.data().action==="media.removal_review")).toBe(true);
   });
+  it("exclusão física exige aprovação, opt-in, geração, procedência e confirmação no Storage",async()=>{
+    const path="tenants/a/public/portfolio/only-approved.webp";
+    const created=await mediaRemoval("/api/media/removal/request","ownerA",{
+      tenantId:"a",objectPath:path,reason:"Solicitação de retirada com validação formal",
+    });
+    expect(created.status).toBe(201);
+    const id=(await created.json() as {requestId:string}).requestId;
+    const executeBody={tenantId:"a",requestId:id,expectedGeneration:"12345",
+      confirmation:"REMOVER_MIDIA_APROVADA",reason:"Excluir geração específica após aprovação"};
+    const call=async(uid:string,body:Record<string,unknown>,optIn=true)=>
+      worker.fetch(new Request("http://worker.local/api/platform/media/removal/execute",{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await signedToken(uid)}`},body:JSON.stringify(body),
+      }),{...env(),FIREBASE_STORAGE_EMULATOR_HOST:"127.0.0.1:9199",
+        FIREBASE_STORAGE_BUCKET:"manicure-worker-test.appspot.com",
+        MEDIA_DELETION_ENABLED:optIn?"true":"false"});
+    expect((await call("platform",executeBody,false)).status).toBe(503);
+    expect((await call("platform",{...executeBody,confirmation:"APAGAR"})).status).toBe(400);
+    expect((await call("ownerA",executeBody)).status).toBe(403);
+    const storage=new Map<string,Record<string,unknown>>([[path,{
+      name:path,generation:"12345",size:"2048",contentType:"image/webp",
+      metadata:{mediaClass:"PERSISTENT_BUSINESS",metadataPolicy:"reencoded_no_exif"},
+    }]]);
+    const previousFetch=globalThis.fetch;
+    const storageCalls:string[]=[];
+    vi.stubGlobal("fetch",((input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input);
+      if(url.startsWith("http://127.0.0.1:9199/v0/b/")){
+        storageCalls.push(`${init?.method??"GET"} ${url}`);
+        const name=decodeURIComponent(url.split("/o/")[1]?.split("?")[0]??"");
+        const stored=storage.get(name);
+        if((init?.method??"GET")==="DELETE"){
+          if(!stored)return Promise.resolve(new Response(null,{status:404}));
+          const generation=new URL(url).searchParams.get("ifGenerationMatch");
+          if(generation!==stored.generation)return Promise.resolve(new Response(null,{status:412}));
+          storage.delete(name);
+          return Promise.resolve(new Response(null,{status:204}));
+        }
+        return Promise.resolve(stored?
+          new Response(JSON.stringify(stored),{status:200,headers:{"content-type":"application/json"}}):
+          new Response(null,{status:404}));
+      }
+      return previousFetch(input,init);
+    }) as typeof fetch);
+    try{
+      expect((await call("platform",executeBody)).status).toBe(409);
+      const review=await mediaRemoval("/api/platform/media/removal/review","platform",{
+        tenantId:"a",requestId:id,decision:"approve",
+        reviewReason:"Aprovação formal do objeto específico e do pedido",
+      });
+      expect(review.status).toBe(200);
+      expect((await call("platform",{...executeBody,expectedGeneration:"12346"})).status).toBe(409);
+      expect(storage.has(path)).toBe(true);
+      const removed=await call("platform",executeBody);
+      expect(removed.status).toBe(200);
+      const result=await removed.json() as {status:string;storageDeleted:boolean};
+      expect(result.status).toBe("deleted_verified");
+      expect(result.storageDeleted).toBe(true);
+      expect(storage.has(path)).toBe(false);
+      expect(storageCalls.some(call=>call.includes("ifGenerationMatch=12345")&&call.startsWith("DELETE"))).toBe(true);
+      expect((await getFirestore(adminApp).doc(`tenants/a/mediaRemovalRequests/${id}`).get()).data()?.status).toBe("deleted_verified");
+      expect((await call("platform",executeBody)).status).toBe(409);
+      const b=await getFirestore(adminApp).collection("tenants/b/mediaRemovalRequests").get();
+      expect(b.empty).toBe(true);
+    }finally{vi.stubGlobal("fetch",previousFetch);}
+  });
   it("upload freeze é reservado ao Platform Owner, tenant-scoped e auditado",async()=>{
     const request=async(uid:string,tenantId:string,paused:boolean)=>worker.fetch(new Request(
       "http://worker.local/api/platform/media/pause",{
