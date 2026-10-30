@@ -115,6 +115,22 @@ describe("tenant isolation and RBAC", () => {
     await assertFails(setDoc(doc(db,"tenants/a"),{status:"active",commercial:{planId:"premium",subscriptionStatus:"active"}},{merge:true}));
   });
 
+  it("solicitações LGPD de mídia são privadas e imutáveis no cliente, inclusive owner",async()=>{
+    await env.withSecurityRulesDisabled(async context=>{
+      await setDoc(doc(context.firestore(),"tenants/a/mediaRemovalRequests/request-1"),{
+        tenantId:"a",objectPath:"tenants/a/public/portfolio/example.webp",
+        status:"pending_review",reason:"Solicitação privada de retirada",
+      });
+    });
+    for(const uid of ["ownerA","customerA","proA","ownerB","platform"]){
+      const db=env.authenticatedContext(uid).firestore();
+      await assertFails(getDoc(doc(db,"tenants/a/mediaRemovalRequests/request-1")));
+      await assertFails(setDoc(doc(db,"tenants/a/mediaRemovalRequests/forged"),{
+        tenantId:"a",status:"approved_pending_manual_removal",
+        objectPath:"tenants/a/public/portfolio/example.webp",
+      }));
+    }
+  });
   it("convites de equipe são documentos privados, editáveis apenas pelo Worker",async()=>{
     await env.withSecurityRulesDisabled(async ctx=>{
       await setDoc(doc(ctx.firestore(),"tenants/a/invitations/test"),{
