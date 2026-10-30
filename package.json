@@ -20,7 +20,8 @@
     "check": "npm run typecheck && npm test && npm run worker:check && npm run test:emulator && npm run docs:check",
     "test:worker": "firebase --project manicure-demo emulators:exec --only auth,firestore,storage \"vitest run worker/src/index.test.ts worker/src/mediaStorage.test.ts\"",
     "test:emulator": "firebase --project manicure-demo emulators:exec --only auth,firestore,storage \"vitest run src/test/firestore.rules.test.ts src/test/storage.rules.test.ts worker/src/index.test.ts worker/src/mediaStorage.test.ts\"",
-    "test:pre-pc": "npm run typecheck && npm test && npm run worker:check && npm run test:emulator && npm run docs:check && npm run build"
+    "test:pre-pc": "npm run typecheck && npm test && npm run worker:check && npm run test:emulator && npm run docs:check && npm run build",
+    "qa:browser": "playwright test"
   },
   "dependencies": {
     "firebase": "11.0.2",
@@ -38,6 +39,7 @@
     "@firebase/rules-unit-testing": "4.0.1",
     "firebase-admin": "13.0.2",
     "firebase-tools": "13.29.2",
-    "wrangler": "3.99.0"
+    "wrangler": "3.99.0",
+    "@playwright/test": "1.55.1"
   }
 }

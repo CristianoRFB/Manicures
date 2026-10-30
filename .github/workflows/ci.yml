@@ -24,3 +24,26 @@ jobs:
       - run: npm run test:emulator
       - run: npm run docs:check
       - run: npm run build
+
+  browser-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - run: npx playwright install --with-deps chromium
+      - run: npm run qa:browser
+      - name: Upload actual demo screenshots and browser report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manicure-real-demo-browser-evidence
+          path: |
+            qa-evidence/screenshots/
+            qa-report/
+            test-results/
+          retention-days: 14
+          if-no-files-found: warn
