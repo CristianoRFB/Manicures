@@ -2,9 +2,9 @@
 
 ## Baseline e avanço mensurável
 - Baseline do turno anterior: **24/42 = 57,1%**.
-- Novo checkpoint: **36/42 = 85,7%** — avanço de **+12 entregas**, sem mudar o denominador.
+- Novo checkpoint: **38/42 = 90,5%** — avanço de **+14 entregas**, sem mudar o denominador.
 
-As doze entregas promovidas para CODE_COMPLETE **só permanecem assim com CI do SHA final verde**:
+As quatorze entregas promovidas para CODE_COMPLETE **só permanecem assim com CI do SHA final verde**:
 
 | Nº | Entrega | Código | Prova automatizada |
 |---:|---|---|---|
@@ -22,14 +22,16 @@ As doze entregas promovidas para CODE_COMPLETE **só permanecem assim com CI do 
 
 | 11 | Convites seguros de 48h para admin e profissional, uso único, e-mail confirmado, revogação e UI | Worker, StaffInvitations, StaffInvitePage, Rules | Worker emulator: e-mail, expiração, A×B, CAS concorrente, quotas e promoção direta proibida |
 | 12 | Reconciliação de quotas legacy com CAS, auditoria e UI do Platform Owner | Worker /api/platform/usage/reconcile, PlatformPage | Worker emulator: correção de contadores, autorização exclusiva e preservação da equipe |
+| 13 | Mudança segura de papel em membership existente por novo convite e aceite verificado | Worker /api/invitations/accept e Rules | Worker emulator: customer→admin, admin→professional, quotas, histórico, bloqueio tenant_owner |
+| 14 | Trial idempotente e visibilidade de expiração/suspensão | Worker /api/admin/plans/assign, subscriptionNotice, TenantAdminPage | Worker emulator: não prorroga trial; testes de aviso e bloqueio de estado |
 
 **Melhorias sem adicionar ao numerador:** Galeria persistente de imagens reais e Storage Rules separadas por papel e tenant (mídia ainda com governança parcial), recuperação oficial de senha, Auth Emulator local com guardas e login testado, histórico agrupado para admin, comprovante in-session, validação de PII no booking, no-show após horário, responsividade CSS, correção de estados de rota.
 
-## Pendências ainda reais (6/42)
+## Pendências ainda reais (4/42)
 - Histórico do cliente autenticado somente para reservas criadas com vínculo verificado; reservas guest anteriores exigem processo específico de titularidade e não podem ser reivindicadas por telefone.
-- Convites verificados e expiráveis para novos admins/profissionais operacionais, com entrega MANUAL de código; troca de papel de quem já possui membership, recuperação administrativa e gestão de outros papéis permanecem pendentes.
-- Reconciliação manual auditada de quotas e alerta de excedentes implementados; gestão avançada de trial/suspensão e migrações complexas ainda pendentes.
-- Mídia: novos uploads são recodificados em WebP sem EXIF/IPTC/XMP originais; faltam governança completa de capacidade/egress, remoção LGPD e tratamento de imagens antigas (ver docs/MEDIA_POLICY.md).
+- Convites verificados também permitem migração de membership existente customer/professional/admin sem acesso direto nem apagar histórico. Transferência de tenant_owner e novos papéis fora do catálogo NÃO são suportados, deliberadamente.
+- Trial aprovado de 14 dias é idempotente em edições e possui avisos no painel, inclusive expirado/suspenso; operação manual de estado por Platform Owner. Cobrança e renovação automáticas permanecem DEFERRED.
+- Mídia: circuit breaker de uploads por tenant (Platform Owner) com Rules, auditoria e preservação de leitura, além de paginação pública de 12 imagens; ainda faltam medição de egress/capacidade, remoção LGPD autorizada e legados (docs/MEDIA_POLICY.md).
 - QA/browser mobile + screenshots reais e staging/deploy (external gates não equivalem a DONE).
 - Dependências de planos NEXT/DEFERRED não são declaradas implementadas.
 
@@ -41,4 +43,4 @@ As doze entregas promovidas para CODE_COMPLETE **só permanecem assim com CI do 
 
 ## Próxima rodada
 Continuar do HEAD verificado da branch `feat/core-multitenant-firebase`. Não repetir CORE nem auditorias anteriores.
-Priorizar governança de mídia/remoção LGPD, outros papéis e migração de memberships, gestão avançada de trial/suspensão e QA real em navegador/staging.
+Priorizar governança de mídia/remoção LGPD com aprovação, inventário e egress, QA real desktop/mobile/staging, política de reservas guest anteriores e validação de operações multi-tenant em ambiente isolado.

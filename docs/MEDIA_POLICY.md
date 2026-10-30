@@ -4,16 +4,17 @@
 **Fonte:** 77_SAAS_GLOBAL_MEDIA_LIFECYCLE_STANDARD_v01; não altera preços, planos ou limites comerciais aprovados.
 
 ## Mídia existente
-- Fotos reais enviadas por tenant_owner/tenant_admin são armazenadas em `tenants/{tenantId}/public/portfolio/{uuid}.webp` para novos uploads (formatos históricos anteriores são preservados)..
+- Fotos reais enviadas por tenant_owner/tenant_admin são armazenadas em `tenants/{tenantId}/public/portfolio/{uuid}.webp` para novos uploads (formatos históricos anteriores são preservados).
 - Novos objetos são rotulados `mediaClass=PERSISTENT_BUSINESS`, `policyVersion=1`, `source=studio_admin`, `metadataPolicy=reencoded_no_exif`.
 - Não existem jobs de TTL nem exclusão automática para esse portfólio; conteúdo fica preservado até fluxo autorizado específico de descarte/atualização.
+- Galeria pública carrega no máximo 12 imagens por página com botão explícito para continuar, reduzindo enumeração de URLs e transferência desnecessária.
 - Upload de browser aceita JPEG, PNG ou WebP de 1 byte a 5 MiB; o arquivo é redimensionado a até 1920 px na maior dimensão, recodificado em WebP, removendo os metadados originais embutidos. **Esses limites são de segurança por objeto, não quotas comerciais**.
 - `storage.rules` aplica separação: `public` legível se tenant ativo; `private` apenas gestão; `professionals/{id}` pelo profissional correspondente ou gestão; `customers/{id}` pelo cliente correspondente ou gestão. Outros tenants não podem acessar. Nenhum caminho de delete pelo cliente.
 - Fotos da galeria são reais publicadas; nenhuma screenshot de tela, visual conceitual ou imagem gerada é tratada como fotografia do serviço.
 
 ## Restrições e trabalho posterior
-- Sem metering de bytes por tenant nem monitoramento de custo/egress, versão de mídia, reserva de capacidade, saneamento retroativo de metadados em arquivos legados, política LGPD de remoção sob solicitação ou workflow de publicação/revisão.
-- Não anunciar "armazenamento ilimitado" nem prometer operação gratuita indefinida do Firebase. Bloquear uploads em incidentes de capacidade depende de infraestrutura futura aprovada.
+- Sem metering consolidado de bytes por tenant nem monitoramento de custo/egress, versão de mídia, reserva de capacidade, saneamento retroativo de metadados em arquivos legados, política LGPD de remoção sob solicitação ou workflow de publicação/revisão.
+- Não anunciar "armazenamento ilimitado" nem prometer operação gratuita indefinida do Firebase. Uma pausa emergencial de novos uploads pode ser acionada pelo Platform Owner via `/api/platform/media/pause`, com auditoria e CAS; `storage.rules` aplica `mediaUploadsPaused`, preservando leituras, demais tenants e imagens existentes. Isso NÃO mede egress nem gerencia limpeza.
 - Não inferir quotas globais dos limites pontuais de upload. Mídia `UNKNOWN_LEGACY` não deve ser excluída automaticamente.
 - Não expor arquivos privados em links públicos de download ou logs. Nunca usar mockups como screenshots reais.
 - Testes de regras: `src/test/storage.rules.test.ts` no Storage Emulator junto a Auth/Firestore; `npm run test:emulator`.

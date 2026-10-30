@@ -80,3 +80,9 @@ Sem deploy/merge automático. Em caso de falha, criar commits corretivos na bran
 ## Downgrade
 - Essencial com duas profissionais ativas deve apresentar 2/1 e manter ambas históricas; novas ativações negadas no Worker.
 - O painel deve indicar também admins adicionais, mantendo teto 0/2/5.
+
+## Controle operacional adicional desta rodada
+- Conta customer/professional/admin existente: mudança de papel somente por novo convite de 48h, com e-mail verificado, aceite e ajuste de quota; dono tenant_owner nunca pode ser convertido.
+- Trial vigente não deve ser estendido após reatribuição manual com mesmo estado; painel mostra dias restantes ou expiração. Suspensões preservam dados.
+- Pausar novos uploads via Platform Owner: exigir justificativa, verificar logs e negar upload em A mantendo B operante. Leitura de fotos existentes deve continuar. Reabilitar e revalidar.
+- Página pública carrega até 12 fotos do Storage por página e só carrega outras após solicitação do visitante.

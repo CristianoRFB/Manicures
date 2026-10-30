@@ -6,7 +6,7 @@
 - Produção: **NÃO DEPLOYED**. PR ainda draft e sem merge na main.
 
 ## Medição técnica
-**36/42 = 85,7% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
+**38/42 = 90,5% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
 Não inclui navegador real, deploy, dados reais ou features comerciais DEFERRED.
 Ver `docs/PRE_PC_COMPLETENESS.md`.
 
@@ -14,14 +14,14 @@ Ver `docs/PRE_PC_COMPLETENESS.md`.
 - M1 Global v01: PlanCatalog, EntitlementService, FeatureGating em frontend/Rules/Worker, quotas 1/3/10 profissionais e 0/2/5 admins, demo, trial e atribuição manual com auditoria.
 - M2 Agenda/serviços: CRUD de serviço com arquivamento, edição de profissional/serviços vinculados, expediente semanal, pausas, folgas, booking por slots e CAS, remarcação atômica, status/no-show e histórico preservado.
 - M3 UX: painel privado do tenant, agenda profissional filtrada, autoatendimento de cliente verificado, cancelamento próprio, editor white-label e histórico admin.
-- M4 Operação: convites 48h verificados e de uso único para novos admins/profissionais, quota/reconciliação manual auditada, downgrade sem exclusões, CSV, recuperação Firebase e isolamento A×B.
+- M4 Operação: convites 48h de uso único permitem novos vínculos e transições seguras de customer/professional/admin com CAS e quotas; reconciliação de staff, downgrade sem exclusão, CSV, recuperação Firebase e isolamento A×B.
 - M5 Qualidade: CI TypeScript, unitários, Worker, Auth/Firestore/Storage Emulator, build e docs check; comando `npm run test:pre-pc`.
 
 ## Incompleto (não afirmar pronto)
 - Reservas guest antigas não são reivindicadas automaticamente pelo cliente logado, por segurança.
-- Convites operacionais com código entregue manualmente; mudança segura de papel de memberships existentes e demais papéis ainda pendentes.
-- Mídia: galeria persistente, Storage Rules role-scoped e recodificação WebP sem EXIF na origem; faltam tratamento legacy, remoção autorizada, orçamento/egress e QA visual (docs/MEDIA_POLICY.md).
-- Downgrade sem exclusão, aviso de excedente e reconciliação de contadores pelo Platform Owner implementados; operações avançadas de trial/suspensão ainda pendentes.
+- Convites de entrega manual e transição de membros existentes implementados; transferências de tenant_owner deliberadamente proibidas, sem envio automático de e-mail.
+- Mídia: galeria paginada (12 por vez), Storage Rules por papel/tenant, WebP sem metadados originais e bloqueio de upload em incidentes auditado pelo Platform Owner; faltam tratamento legacy, remoção LGPD autorizada, orçamento/egress e QA visual (docs/MEDIA_POLICY.md).
+- Trial de 14 dias mantém trialUntil em edições repetidas; UI avisa vencimento, expiração e suspensões. Estado comercial continua manual, sem cobrança automática.
 - Browser real mobile/desktop, screenshots reais, QA visual e deploy/staging.
 
 ## Preservações

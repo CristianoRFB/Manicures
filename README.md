@@ -13,10 +13,12 @@ Esta branch contém o CORE multi-tenant e implementação **parcial** do Global 
 - área da profissional `/professional/:tenantSlug` e cliente `/customer/:tenantSlug`;
 - reservas guest sem conta permanecem possíveis, mas **não** são vinculadas automaticamente ao histórico privado;
 - portfólio persistente de imagens reais com normalização WebP/remoção de metadados originais, sem TTL ou exclusão automática;
-- convites seguros e auditados de 48 horas para staff com validação de e-mail confirmado e quota no aceite;
-- reconciliação de contadores legados exclusiva do Platform Owner, sem alterar dados da equipe.
+- convites seguros e auditados de 48 horas para staff, inclusive conversão verificada de customer/professional/admin; quota no aceite;
+- reconciliação de contadores legados exclusiva do Platform Owner, sem alterar dados da equipe;
+- trial de 14 dias sem prorrogação silenciosa, avisos de vencimento/estado;
+- controle emergencial de uploads por tenant auditado e galeria paginada com 12 fotos por página.
 
-**Métrica de engenharia pré-PC:** 36/42 (85,7%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
+**Métrica de engenharia pré-PC:** 38/42 (90,5%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
 
 ## Setup
 ```bash
@@ -64,5 +66,5 @@ A branch segura permanece em PR draft, sem merge e sem deploy automático.
 ## Convites de equipe e reconciliação
 - O proprietário gera e gerencia convites pelo painel `/app/:tenantSlug`, com código de uso único e validade de 48 horas; o envio é MANUAL, ainda não há integração de e-mail transacional.
 - O convidado entra em `/invite/:tenantSlug`, usa sua conta Firebase com e-mail verificado e informa o código; acesso é criado atomicamente pelo Worker.
-- Convite de administrador consome quota no ACEITE. Converter contas com outros papéis exige fluxo futuro específico — promoção direta proibida.
+- Convite de administrador consome quota no ACEITE. Converter membro existente exige NOVO convite, e-mail verificado e aceite do titular, com atualização atômica e preservação do histórico; promoção direta ainda é proibida.
 - O Platform Owner pode reconciliar contadores divergentes no painel `/platform`, com justificativa e auditoria; isso nunca remove vínculos nem muda plano.
