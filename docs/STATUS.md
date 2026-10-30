@@ -6,8 +6,8 @@
 - Produção: **NÃO DEPLOYED**. PR ainda draft e sem merge na main.
 
 ## Medição técnica
-**40/42 = 95,2% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
-Não inclui navegador real, deploy, dados reais ou features comerciais DEFERRED.
+**41/42 = 97,6% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
+Inclui QA em navegador DEMO/emuladores, mas NÃO inclui deploy, staging real, métricas do provedor, dados reais nem features comerciais DEFERRED.
 Ver `docs/PRE_PC_COMPLETENESS.md`.
 
 ## Evidência por módulo
@@ -15,7 +15,7 @@ Ver `docs/PRE_PC_COMPLETENESS.md`.
 - M2 Agenda/serviços: CRUD de serviço com arquivamento, edição de profissional/serviços vinculados, expediente semanal, pausas, folgas, booking por slots e CAS, remarcação atômica, status/no-show e histórico preservado.
 - M3 UX: painel privado do tenant, agenda profissional filtrada, autoatendimento de cliente verificado, cancelamento próprio, editor white-label e histórico admin.
 - M4 Operação: convites 48h de uso único permitem novos vínculos e transições seguras de customer/professional/admin com CAS e quotas; reconciliação de staff, downgrade sem exclusão, CSV, recuperação Firebase e isolamento A×B.
-- M5 Qualidade: CI TypeScript, unitários, Worker, Auth/Firestore/Storage Emulator com exclusão física fictícia, Playwright real desktop/mobile com screenshots DEMO, build e docs check; `npm run test:pre-pc`.
+- M5 Qualidade: CI TypeScript, unitários inclusive comerciais e parser de limites, Worker, Auth/Firestore/Storage Emulator com exclusão física fictícia, Playwright real desktop/mobile com screenshots DEMO, build e docs check; `npm run test:pre-pc`.
 
 ## Incompleto (não afirmar pronto)
 - Reservas guest antigas: pedido autenticado, revisão independente manual do studio e vínculo CAS auditado implementados; nenhuma associação automática por telefone e nenhum dado real migrado.
@@ -31,3 +31,6 @@ Ver `docs/PRE_PC_COMPLETENESS.md`.
 - Sem acesso a dados/segredos de produção.
 
 Leia `docs/CURRENT.md` para fonte vigente; consulte Actions do **SHA final** antes de declarar CI PASS.
+
+## Gate de merge (separado de deploy)
+Após revisão e CI completos, o código pode ser integrado na `main` sem iniciar produção. `npm run release:gate` bloqueia configurações destrutivas versionadas; staging/IAM/egress e QA físico continuam exigências externas.

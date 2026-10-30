@@ -1,7 +1,7 @@
 # NEXT CODEX STEP / CONTINUIDADE VIA CHAT
 
 Última etapa: implementação direta na branch segura com CI, sem enviar ao Codex e sem deploy.
-Os dezesseis módulos concluídos desde 24/42 estão detalhados em `docs/PRE_PC_COMPLETENESS.md`.
+Os dezessete módulos concluídos desde 24/42 estão detalhados em `docs/PRE_PC_COMPLETENESS.md`.
 É proibido repetir CORE_FIRST e migrar para outra stack.
 
 Foco do código faltante:
@@ -14,3 +14,9 @@ Para verificar no PC: `npm run test:pre-pc`, `docs/PC_FINAL_TEST_SESSION.md`.
 Não implementar billing, gateway ou marketplace prematuramente.
 
 5. Reservas guest históricas: solicitação e revisão por verificação independente com CAS implementadas em `docs/GUEST_HISTORY_LINKING.md`; não inventar associação por telefone nem ativar importação em massa sem consentimento.
+
+## Encerramento do código desenvolvível nesta etapa
+- Endpoint `/api/platform/media/inventory/scan` faz varredura limitada/retomável com classificação, proteção contra loops e alertas por bytes observados. NÃO mede tráfego de saída, preços, custos nem quotas comerciais.
+- `npm test` agora executa testes comerciais; `npm run release:gate` verifica configurações de integração seguras.
+- Pendente externo único: staging real/IAM, Cloud Billing/egress/limites de orçamento, validação de backup/URL e QA físico. Não ativar exclusão automática nem billing.
+- Se a PR for aprovada e mergeada na main, usar **main + merge SHA verificado** como ponto de continuidade, não o HEAD antigo da branch.

@@ -41,3 +41,6 @@ Homologar e medir em ambiente seguro: formato real e capacidade, links públicos
 
 ## Observabilidade parcial de capacidade
 O endpoint `/api/platform/media/inventory` retorna bytes e classificação por **página consultada** em `metrics` e o painel soma somente páginas carregadas. Tipos legados são explicitamente identificados. Isso NÃO mede egress, custos reais, tarifas do Firebase ou quota de serviços. Não criar limites comerciais fictícios; ainda faltam métricas do provedor e alertas reais.
+
+## Inventário operacional (sem inventar fatura)
+`POST /api/platform/media/inventory/scan` (Platform Owner) recebe tenantId, `maxPages` de 1 a 20, cursor opcional e `alertThresholdBytes` opcional. Retorna contagem e bytes das páginas efetivamente varridas, separados em `PERSISTENT_BUSINESS`, `UNKNOWN_LEGACY` e outros; pode continuar pelo cursor. O limiar sinaliza SOMENTE se os bytes já observados o excederam. Resultado abaixo do limiar com páginas pendentes não comprova consumo seguro. NÃO é egress, Cloud Billing ou alerta por custo real. O frontend expõe varredura de até 10 páginas e limiar operacional em MiB.

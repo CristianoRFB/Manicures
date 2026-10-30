@@ -19,7 +19,7 @@ Esta branch contém o CORE multi-tenant e implementação **parcial** do Global 
 - controle emergencial de uploads por tenant auditado e galeria paginada com 12 fotos por página;
 - solicitação/revisão e exclusão física controlada de mídia com geração exata, CAS e auditoria; **desabilitada por padrão, validada somente no Storage Emulator, nunca executada em produção**.
 
-**Métrica de engenharia pré-PC:** 40/42 (95,2%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
+**Métrica de engenharia pré-PC:** 41/42 (97,6%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
 
 ## Setup
 ```bash
@@ -80,3 +80,9 @@ A branch segura permanece em PR draft, sem merge e sem deploy automático.
 - `npm run qa:browser` captura as telas públicas em Chromium desktop/mobile com DEMO local e **sem dados reais**.
 - `npm run qa:browser:auth` captura áreas privadas com Auth/Firestore Emulators sintéticos após `scripts/seed-emulator.mjs`; CI guarda os screenshots em artefato Actions por 14 dias.
 - `/customer/:tenantSlug` permite pedir revisão de um agendamento antigo feito sem login; aprovação na área admin exige identidade confirmada independentemente. Não há reivindicação automática por telefone. Ler `docs/GUEST_HISTORY_LINKING.md`.
+
+## Integração segura à main (não é deploy)
+- `npm run release:gate` integra verificação de configurações de exclusão, rules e testes no CI.
+- `npm test` inclui suites comerciais; limite manual de equipe validado por função testada.
+- Varredura operacional de capacidade `/api/platform/media/inventory/scan` classifica bytes observados por tenant; não fornece custos, fatura ou egress.
+- A integração de código na main é permitida somente após CI verde e revisão. Habilitação de produção continua bloqueada por IAM, GCS staging, medição de custos/egress e QA físico.

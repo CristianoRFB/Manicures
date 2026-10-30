@@ -16,7 +16,7 @@ Para ciclo de vida de mídia e procedimentos protegidos, consultar `docs/MEDIA_P
 Não declarar COMPLETE ou DEPLOYED somente por CI verde.
 
 ## Fonte de verdade
-- código: branch `feat/core-multitenant-firebase` até revisão/merge;
+- código: PR #1 na branch `feat/core-multitenant-firebase` até revisão/merge. Após integração verificada, a fonte de código passa a ser `main` no SHA do merge;
 - documentação vigente: esta versão;
 - decisões comerciais: `docs/consolidation/`.
 
