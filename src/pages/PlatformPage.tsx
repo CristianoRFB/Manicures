@@ -7,6 +7,7 @@ import { LoginPanel } from "../components/LoginPanel";
 import { IMPLEMENTED_FEATURES, PLAN_CATALOG, PLAN_ORDER, type FeatureKey, type PlanId } from "../commercial/planCatalog";
 
 type RemovalRequest={requestId:string;objectPath:string;status:string;reason:string;createdAt:string;reviewedAt?:string;reviewReason?:string};
+type MediaObject={path:string;generation:string;size:number;mediaClass:string;contentType:string};
 interface Assignment { planId: PlanId | "premium_demo"; status: "active" | "trial" | "past_due" | "suspended" | "cancelled" | "demo"; reason: string; }
 const initial: Assignment = { planId:"essencial", status:"active", reason:"" };
 const money = (cents: number) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(cents/100);
@@ -39,6 +40,12 @@ export function PlatformPage() {
   const [removalBusy,setRemovalBusy]=useState(false);
   const [removalReason,setRemovalReason]=useState("");
   const [removalMessage,setRemovalMessage]=useState("");
+  const [mediaObjects,setMediaObjects]=useState<MediaObject[]>([]);
+  const [inventoryToken,setInventoryToken]=useState<string|null>(null);
+  const [inventoryBusy,setInventoryBusy]=useState(false);
+  const [inventoryMessage,setInventoryMessage]=useState("");
+  const [deletionConfirmation,setDeletionConfirmation]=useState("");
+  const [deletionReason,setDeletionReason]=useState("");
 
   async function reload() {
     const list = await repository.listTenants();
@@ -54,6 +61,10 @@ export function PlatformPage() {
   }, [user]);
 
   const selected = tenants.find((t) => t.id === selectedId);
+  useEffect(()=>{
+    setMediaObjects([]);setInventoryToken(null);setRemovalRows([]);
+    setDeletionConfirmation("");setDeletionReason("");
+  },[selectedId]);
 
   useEffect(() => {
     if (!selected) return;
@@ -165,6 +176,55 @@ export function PlatformPage() {
     finally{setRemovalBusy(false);}
   }
 
+  async function loadMediaInventory(continuation=false){
+    if(!selected||!user||inventoryBusy)return;
+    setInventoryBusy(true);setInventoryMessage("");
+    try{
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!base)throw new Error("Worker não configurado.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/platform/media/inventory`,{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:selected.id,...(continuation&&inventoryToken?{pageToken:inventoryToken}:{})}),
+      });
+      const data=await response.json() as {error?:string;objects?:MediaObject[];
+        nextPageToken?:string|null;pageBytes?:number;exhaustive?:boolean};
+      if(!response.ok)throw new Error(data.error??"Inventário indisponível.");
+      setMediaObjects(current=>continuation?[...current,...(data.objects??[])]:data.objects??[]);
+      setInventoryToken(data.nextPageToken??null);
+      setInventoryMessage(`Página consultada: ${data.objects?.length??0} objetos, ${data.pageBytes??0} bytes.
+        ${data.exhaustive?"Fim do inventário.":"Há mais páginas."} Não representa egress nem fatura.`);
+    }catch(err){setInventoryMessage(err instanceof Error?err.message:"Erro no inventário.");}
+    finally{setInventoryBusy(false);}
+  }
+  async function executeMediaRemoval(row:RemovalRequest){
+    if(!selected||!user||removalBusy||deletionConfirmation!=="REMOVER_MIDIA_APROVADA"||
+      deletionReason.trim().length<10)return;
+    const item=mediaObjects.find(obj=>obj.path===row.objectPath);
+    if(!item){setRemovalMessage("Inspecione a geração exata no inventário antes de excluir.");return;}
+    setRemovalBusy(true);setRemovalMessage("");
+    try{
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!base)throw new Error("Worker não configurado.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/platform/media/removal/execute`,{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:selected.id,requestId:row.requestId,
+          expectedGeneration:item.generation,confirmation:deletionConfirmation,
+          reason:deletionReason.trim()}),
+      });
+      const result=await response.json() as {error?:string;storageDeleted?:boolean;status?:string};
+      if(!response.ok)throw new Error(result.error??"Falha na execução.");
+      if(result.storageDeleted!==true||result.status!=="deleted_verified")
+        throw new Error("A remoção não foi verificada no provedor.");
+      setRemovalMessage("Ausência do objeto confirmada no Storage e operação auditada. Caches externos ainda podem reter cópias.");
+      setMediaObjects(items=>items.filter(obj=>obj.path!==row.objectPath));
+      setDeletionConfirmation("");setDeletionReason("");
+      setRemovalRows((await mediaRequest("list",{})).requests??[]);
+    }catch(err){setRemovalMessage(err instanceof Error?err.message:"Falha na exclusão. Verifique estado antes de repetir.");}
+    finally{setRemovalBusy(false);}
+  }
+
   async function changeUploadPause(paused:boolean){
     if(!user||!selected||uploadPauseWorking)return;
     setUploadPauseWorking(true);setUploadPauseMessage("");
@@ -225,6 +285,19 @@ export function PlatformPage() {
         <Link to={`/app/${tenant.slug}`}>Abrir tenant</Link>
       </article>)}
     </div>
+    <section aria-labelledby="media-inventory-heading">
+      <h2 id="media-inventory-heading">Inventário do portfólio</h2>
+      <p>Consulta limitada a 100 objetos por página. Os tamanhos servem para estimar armazenamento listado; não medem tráfego, cobranças ou capacidade total.</p>
+      <button type="button" className="button" disabled={!selected||inventoryBusy}
+        onClick={()=>void loadMediaInventory()}>{inventoryBusy?"Consultando…":"Inspecionar objetos"}</button>
+      {inventoryToken&&<button type="button" className="button" disabled={inventoryBusy}
+        onClick={()=>void loadMediaInventory(true)}>Próxima página</button>}
+      {inventoryMessage&&<p role="status">{inventoryMessage}</p>}
+      {mediaObjects.map(item=><p key={item.path}>
+        <code>{item.path.split("/").pop()}</code> · geração <code>{item.generation}</code> ·
+        {item.size} bytes · {item.mediaClass}
+      </p>)}
+    </section>
     <section aria-labelledby="media-review-heading">
       <h2 id="media-review-heading">Solicitações de retirada de fotos</h2>
       <p>Fluxo controlado: solicitação pelo studio, revisão do Platform Owner, execução manual de retirada em etapa posterior.
@@ -236,10 +309,26 @@ export function PlatformPage() {
           onChange={event=>setRemovalReason(event.target.value)}/>
       </label>
       {removalMessage&&<p role="status">{removalMessage}</p>}
+      <p>Para executar exclusão física, o objeto deve ter sido inspecionado no inventário.
+        O ambiente precisa permitir explicitamente a operação no Worker.</p>
+      <label>Confirmação explícita
+        <input autoComplete="off" placeholder="REMOVER_MIDIA_APROVADA"
+          value={deletionConfirmation} onChange={event=>setDeletionConfirmation(event.target.value)}/>
+      </label>
+      <label>Justificativa da execução (10–500 caracteres)
+        <textarea rows={2} minLength={10} maxLength={500} value={deletionReason}
+          onChange={event=>setDeletionReason(event.target.value)}/>
+      </label>
       {removalRows.map(row=><article className="card" key={row.requestId}>
         <strong>{row.objectPath.split("/").pop()}</strong>
         <p>Estado: {row.status} · Pedido: {row.createdAt.slice(0,10)}</p>
         <p>Motivo: {row.reason}</p>
+        {["approved_pending_manual_removal","deletion_in_progress"].includes(row.status)&&
+          <button className="button" type="button" disabled={removalBusy||
+            deletionConfirmation!=="REMOVER_MIDIA_APROVADA"||
+            deletionReason.trim().length<10||
+            !mediaObjects.some(item=>item.path===row.objectPath)}
+            onClick={()=>void executeMediaRemoval(row)}>Excluir geração aprovada e verificar Storage</button>}
         {row.status==="pending_review"&&<div className="row">
           <button className="button primary" type="button"
             disabled={removalBusy||removalReason.trim().length<10}
