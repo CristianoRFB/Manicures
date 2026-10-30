@@ -6,7 +6,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { LoginPanel } from "../components/LoginPanel";
 import { IMPLEMENTED_FEATURES, PLAN_CATALOG, PLAN_ORDER, type FeatureKey, type PlanId } from "../commercial/planCatalog";
 
-type RemovalRequest={requestId:string;objectPath:string;status:string;reason:string;createdAt:string;reviewedAt?:string;reviewReason?:string};
+type RemovalRequest={requestId:string;objectPath:string;status:string;reason:string;createdAt:string;reviewedAt?:string;reviewReason?:string;storageGeneration?:string;deletedAt?:string};
 type MediaObject={path:string;generation:string;size:number;mediaClass:string;contentType:string};
 interface Assignment { planId: PlanId | "premium_demo"; status: "active" | "trial" | "past_due" | "suspended" | "cancelled" | "demo"; reason: string; }
 const initial: Assignment = { planId:"essencial", status:"active", reason:"" };
@@ -201,7 +201,8 @@ export function PlatformPage() {
     if(!selected||!user||removalBusy||deletionConfirmation!=="REMOVER_MIDIA_APROVADA"||
       deletionReason.trim().length<10)return;
     const item=mediaObjects.find(obj=>obj.path===row.objectPath);
-    if(!item){setRemovalMessage("Inspecione a geração exata no inventário antes de excluir.");return;}
+    const generation=item?.generation||(row.status==="deletion_in_progress"?row.storageGeneration:undefined);
+    if(!generation){setRemovalMessage("Inspecione a geração no inventário, ou recupere a geração já registrada no ledger.");return;}
     setRemovalBusy(true);setRemovalMessage("");
     try{
       const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
@@ -210,7 +211,7 @@ export function PlatformPage() {
         method:"POST",headers:{"content-type":"application/json",
           authorization:`Bearer ${await user.getIdToken()}`},
         body:JSON.stringify({tenantId:selected.id,requestId:row.requestId,
-          expectedGeneration:item.generation,confirmation:deletionConfirmation,
+          expectedGeneration:generation,confirmation:deletionConfirmation,
           reason:deletionReason.trim()}),
       });
       const result=await response.json() as {error?:string;storageDeleted?:boolean;status?:string};
@@ -322,12 +323,15 @@ export function PlatformPage() {
       {removalRows.map(row=><article className="card" key={row.requestId}>
         <strong>{row.objectPath.split("/").pop()}</strong>
         <p>Estado: {row.status} · Pedido: {row.createdAt.slice(0,10)}</p>
+        {row.status==="deletion_in_progress"&&<p>Execução interrompida: confirmar ausência ou geração travada <code>{row.storageGeneration}</code>.</p>}
+        {row.status==="deleted_verified"&&<p>Ausência no Storage verificada em {row.deletedAt}. Caches externos não verificados.</p>}
         <p>Motivo: {row.reason}</p>
         {["approved_pending_manual_removal","deletion_in_progress"].includes(row.status)&&
           <button className="button" type="button" disabled={removalBusy||
             deletionConfirmation!=="REMOVER_MIDIA_APROVADA"||
             deletionReason.trim().length<10||
-            !mediaObjects.some(item=>item.path===row.objectPath)}
+            !(mediaObjects.some(item=>item.path===row.objectPath)||
+              (row.status==="deletion_in_progress"&&Boolean(row.storageGeneration)))}
             onClick={()=>void executeMediaRemoval(row)}>Excluir geração aprovada e verificar Storage</button>}
         {row.status==="pending_review"&&<div className="row">
           <button className="button primary" type="button"
