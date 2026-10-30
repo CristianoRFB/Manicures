@@ -589,6 +589,7 @@ async function tenantAdminIdentity(request: Request, env: Env, tenantId: string,
   let actorId: string;
   try { actorId=await verifyFirebaseIdToken(authorization.slice(7),env); }
   catch { return null; }
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(actorId))return null;
   const platform = await getDocument(env,serverToken,`platformUsers/${actorId}`);
   if (platform && str(platform,"role")==="platform_owner" && str(platform,"status")==="active")
     return {actorId,actorRole:"platform_owner"};
@@ -761,7 +762,7 @@ async function manageTenantAdmin(request:Request, env:Env):Promise<Response> {
   if(!existing && actor.actorRole!=="platform_owner")
     return json(env,{error:"Nova associação exige cadastro ou convite verificado pela plataforma."},403);
   if(existing && (str(existing,"tenantId")!==tenantId || str(existing,"userId")!==userId ||
-      !["tenant_admin","professional","customer"].includes(str(existing,"role"))))
+      str(existing,"role")!=="tenant_admin"))
     return json(env,{error:"Membership não pode ser alterada por este fluxo."},403);
   if(userId===actor.actorId) return json(env,{error:"Não é permitido alterar o próprio acesso por este fluxo."},403);
 
