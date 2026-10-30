@@ -115,6 +115,20 @@ describe("tenant isolation and RBAC", () => {
     await assertFails(setDoc(doc(db,"tenants/a"),{status:"active",commercial:{planId:"premium",subscriptionStatus:"active"}},{merge:true}));
   });
 
+  it("pedidos de vínculo guest não podem ser lidos, aprovados ou criados diretamente no Firestore",async()=>{
+    await env.withSecurityRulesDisabled(async context=>{
+      await setDoc(doc(context.firestore(),"tenants/a/guestClaims/test"),{
+        tenantId:"a",appointmentId:"old",customerId:"customerA",status:"pending_review",
+      });
+    });
+    for(const uid of ["ownerA","adminA","customerA","ownerB","platform"]){
+      const db=env.authenticatedContext(uid).firestore();
+      await assertFails(getDoc(doc(db,"tenants/a/guestClaims/test")));
+      await assertFails(setDoc(doc(db,"tenants/a/guestClaims/forged"),{
+        tenantId:"a",appointmentId:"old",customerId:uid,status:"approved",
+      }));
+    }
+  });
   it("solicitações LGPD de mídia são privadas e imutáveis no cliente, inclusive owner",async()=>{
     await env.withSecurityRulesDisabled(async context=>{
       await setDoc(doc(context.firestore(),"tenants/a/mediaRemovalRequests/request-1"),{
