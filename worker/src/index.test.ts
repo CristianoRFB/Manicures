@@ -119,11 +119,11 @@ describe("Trusted commercial and professional writes",()=>{
     }) as typeof fetch);
   });
   afterAll(()=>{vi.unstubAllGlobals();});
-  async function signedToken(uid:string,verified=false) {
+  async function signedToken(uid:string,verified=false,email?:string) {
     const now=Math.floor(Date.now()/1000);
     const b64=(v:unknown)=>Buffer.from(JSON.stringify(v)).toString("base64url");
     const head=b64({alg:"RS256",kid:"test-kid"});
-    const claims=b64({iss:`https://securetoken.google.com/${projectId}`,aud:projectId,sub:uid,iat:now-10,auth_time:now-10,exp:now+600,email_verified:verified});
+    const claims=b64({iss:`https://securetoken.google.com/${projectId}`,aud:projectId,sub:uid,iat:now-10,auth_time:now-10,exp:now+600,email_verified:verified,email});
     const unsigned=`${head}.${claims}`;
     const sig=await crypto.subtle.sign("RSASSA-PKCS1-v1_5",privateKey,new TextEncoder().encode(unsigned));
     return `${unsigned}.${Buffer.from(sig).toString("base64url")}`;
@@ -219,6 +219,78 @@ describe("Trusted commercial and professional writes",()=>{
     expect(data.exceeded.professionals_active).toBe(true);
     expect((await getFirestore(adminApp).collection("tenants/a/professionals").get()).size).toBe(2);
     expect((await usageFor("ownerB")).status).toBe(403);
+  });
+  async function invitationRequest(path:string,uid:string,body:Record<string,unknown>,
+    verified=true,email="member@example.test"){
+    return worker.fetch(new Request(`http://worker.local${path}`,{
+      method:"POST",headers:{"content-type":"application/json",
+        authorization:`Bearer ${await signedToken(uid,verified,email)}`},
+      body:JSON.stringify(body),
+    }),env());
+  }
+  async function issueInvite(actor="ownerA",role:"tenant_admin"|"professional"="tenant_admin",
+    tenantId="a",email="member@example.test"){
+    return invitationRequest("/api/admin/invitations/create",actor,
+      {tenantId,email,role,...(role==="professional"?{professionalId:"p1"}:{})});
+  }
+  async function claimInvite(uid:string,invitationId:string,tenantId="a",
+    verified=true,email="member@example.test"){
+    return invitationRequest("/api/invitations/accept",uid,
+      {tenantId,invitationId},verified,email);
+  }
+  it("convite admin verificado é de uso único, atômico e contabilizado",async()=>{
+    const issued=await issueInvite();
+    expect(issued.status).toBe(201);
+    const {invitationId}=await issued.json() as {invitationId:string};
+    expect((await claimInvite("newAdmin",invitationId,"a",false)).status).toBe(401);
+    expect((await claimInvite("newAdmin",invitationId,"a",true,"wrong@example.test")).status).toBe(403);
+    expect((await claimInvite("newAdmin",invitationId,"b")).status).toBe(404);
+    const concurrent=await Promise.all([
+      claimInvite("newAdmin",invitationId),
+      claimInvite("newAdmin",invitationId),
+    ]);
+    expect(concurrent.filter(r=>r.status===200)).toHaveLength(1);
+    expect(concurrent.filter(r=>r.status===409||r.status===403)).toHaveLength(1);
+    const db=getFirestore(adminApp);
+    const member=(await db.doc("memberships/a_newAdmin").get()).data();
+    expect(member?.role).toBe("tenant_admin");
+    expect(member?.status).toBe("active");
+    const counter=await db.doc("tenants/a/usage/staff").get();
+    expect(counter.data()?.tenantAdminsAdditional).toBe(1);
+    const invitation=(await db.doc(`tenants/a/invitations/${invitationId}`).get()).data();
+    expect(invitation?.status).toBe("accepted");
+    expect((await claimInvite("second",invitationId)).status).toBe(403);
+  });
+  it("owner A não convida em B e limite Essencial é aplicado no aceite",async()=>{
+    expect((await issueInvite("ownerA","tenant_admin","b")).status).toBe(403);
+    const invite=await issueInvite();
+    const id=(await invite.json() as {invitationId:string}).invitationId;
+    await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"essencial",subscriptionStatus:"active"}});
+    expect((await claimInvite("newAdmin",id)).status).toBe(409);
+    expect((await getFirestore(adminApp).doc("memberships/a_newAdmin").get()).exists).toBe(false);
+    expect((await issueInvite()).status).toBe(409);
+  });
+  it("convites expiram, revogação bloqueia e não apaga log",async()=>{
+    const invite=await issueInvite();
+    const id=(await invite.json() as {invitationId:string}).invitationId;
+    await getFirestore(adminApp).doc(`tenants/a/invitations/${id}`).update({expiresAtEpochMs:Date.now()-1000});
+    expect((await claimInvite("newAdmin",id)).status).toBe(403);
+    const issued=await issueInvite();
+    const id2=(await issued.json() as {invitationId:string}).invitationId;
+    expect((await invitationRequest("/api/admin/invitations/revoke","ownerB",{tenantId:"a",invitationId:id2})).status).toBe(403);
+    expect((await invitationRequest("/api/admin/invitations/revoke","ownerA",{tenantId:"a",invitationId:id2})).status).toBe(200);
+    expect((await claimInvite("newAdmin",id2)).status).toBe(403);
+  });
+  it("profissional convidada só recebe papel e vínculo profissional informado",async()=>{
+    const invite=await issueInvite("ownerA","professional");
+    expect(invite.status).toBe(201);
+    const {invitationId}=await invite.json() as {invitationId:string};
+    expect((await claimInvite("newPro",invitationId)).status).toBe(200);
+    const membership=(await getFirestore(adminApp).doc("memberships/a_newPro").get()).data();
+    expect(membership?.role).toBe("professional");
+    expect(membership?.professionalId).toBe("p1");
+    const usage=(await getFirestore(adminApp).doc("tenants/a/usage/staff").get()).data();
+    expect(usage?.tenantAdminsAdditional).toBeUndefined();
   });
   it("Pro: limita a dois administradores adicionais, com auditoria",async()=>{
     expect((await manageAdmin("a","platform","admin1")).status).toBe(200);
