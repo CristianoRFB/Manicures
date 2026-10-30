@@ -17,4 +17,11 @@ describe("availability", () => {
     expect(slots).not.toContain("2026-10-10T14:00:00");
     expect(slots).toContain("2026-10-10T09:00:00");
   });
+  it("não oferece 11:30 para serviço que atravessa a pausa das 12h", () => {
+    const slots = createSlots("2026-10-28", service, professional, []);
+    expect(slots).not.toContain("2026-10-28T11:30:00");
+    expect(slots).not.toContain("2026-10-28T12:00:00");
+    expect(slots).toContain("2026-10-28T13:00:00");
+  });
+
 });

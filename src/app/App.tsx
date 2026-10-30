@@ -4,7 +4,11 @@ import { HomePage } from "../pages/HomePage";
 import { TenantPublicPage } from "../pages/TenantPublicPage";
 import { BookingPage } from "../pages/BookingPage";
 import { TenantAdminPage } from "../pages/TenantAdminPage";
+import { ProfessionalPage } from "../pages/ProfessionalPage";
+import { CustomerPage } from "../pages/CustomerPage";
+import { StaffInvitePage } from "../pages/StaffInvitePage";
 import { PlatformPage } from "../pages/PlatformPage";
+import { PricingPage } from "../pages/PricingPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
 
 export function App() {
@@ -12,8 +16,12 @@ export function App() {
     <Layout>
       <Routes>
         <Route path="/" element={<HomePage />} />
+        <Route path="/pricing" element={<PricingPage />} />
         <Route path="/platform" element={<PlatformPage />} />
         <Route path="/app/:tenantSlug" element={<TenantAdminPage />} />
+        <Route path="/professional/:tenantSlug" element={<ProfessionalPage />} />
+        <Route path="/customer/:tenantSlug" element={<CustomerPage />} />
+        <Route path="/invite/:tenantSlug" element={<StaffInvitePage />} />
         <Route path="/:tenantSlug/book" element={<BookingPage />} />
         <Route path="/:tenantSlug" element={<TenantPublicPage />} />
         <Route path="*" element={<NotFoundPage />} />

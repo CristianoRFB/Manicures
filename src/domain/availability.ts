@@ -13,7 +13,7 @@ export function createSlots(date: string, service: Service, professional: Profes
   );
 
   for (let minutes = startHour * 60; minutes + service.durationMin <= endHour * 60; minutes += 30) {
-    if (minutes >= 12 * 60 && minutes < 13 * 60) continue;
+    if (minutes < 13 * 60 && minutes + service.durationMin > 12 * 60) continue;
 
     const start = atMinutes(date, minutes);
     const end = atMinutes(date, minutes + service.durationMin);

@@ -9,6 +9,8 @@ export function Layout({ children }: { children: ReactNode }) {
         <nav>
           <Link to="/demo">Demo pública</Link>
           <Link to="/app/demo">Tenant Admin</Link>
+          <Link to="/professional/demo">Minha agenda</Link>
+          <Link to="/customer/demo">Área do cliente</Link>
           <Link to="/platform">Platform</Link>
         </nav>
       </header>

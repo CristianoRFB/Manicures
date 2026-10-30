@@ -17,6 +17,7 @@ export interface Tenant {
   name: string;
   status: TenantStatus;
   kind: "demo" | "real";
+  mediaUploadsPaused?: boolean;
   branding: {
     primary: string;
     accent: string;
@@ -41,6 +42,8 @@ export interface Membership {
   tenantId: string;
   role: Role;
   status: MembershipStatus;
+  professionalId?: string;
+  customerId?: string;
 }
 
 export interface Service {
@@ -59,6 +62,9 @@ export interface Professional {
   name: string;
   active: boolean;
   serviceIds: string[];
+  weeklyHours?: Record<string,{
+    closed:boolean;startMinute:number;endMinute:number;breakStartMinute:number;breakEndMinute:number;
+  }>;
 }
 
 export interface Appointment {
@@ -66,6 +72,7 @@ export interface Appointment {
   tenantId: string;
   customerName: string;
   customerPhone: string;
+  customerId?: string;
   professionalId: string;
   serviceId: string;
   startsAt: string;
@@ -76,4 +83,20 @@ export interface Appointment {
   notes?: string;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AuditLog {
+  id: string;
+  actorId: string;
+  actorRole: Role;
+  tenantId: string;
+  action: string;
+  resourceType: string;
+  resourceId: string;
+  createdAt: string;
+}
+
+export interface ScheduleBlock {
+  id:string;tenantId:string;professionalId:string;startsAt:string;endsAt:string;
+  reason:string;active:boolean;createdAt:string;updatedAt:string;
 }

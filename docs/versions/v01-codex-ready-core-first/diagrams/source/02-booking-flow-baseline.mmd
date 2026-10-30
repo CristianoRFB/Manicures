@@ -1,6 +1,16 @@
-flowchart LR
-  Service[Selecionar serviço] --> Professional[Selecionar profissional]
-  Professional --> Slot[Calcular/selecionar horário]
-  Slot --> Appointment[Criar Appointment DEMO]
-  Appointment --> Validate[Validar overlap local]
-  Validate --> Panel[Painel do tenant]
+sequenceDiagram
+  actor Customer
+  participant Web
+  participant Worker as Booking Worker
+  participant Firestore
+  Customer->>Web: escolhe serviço/profissional/horário
+  Web->>Worker: POST /api/bookings
+  Worker->>Firestore: valida tenant/service/professional
+  Worker->>Firestore: commit Appointment + bookingLocks (exists=false)
+  alt horário livre
+    Firestore-->>Worker: commit OK
+    Worker-->>Web: 201 appointment
+  else conflito
+    Firestore-->>Worker: precondition conflict
+    Worker-->>Web: 409 horário indisponível
+  end

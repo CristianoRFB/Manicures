@@ -1,14 +1,86 @@
 rules_version = '2';
 service firebase.storage {
   match /b/{bucket}/o {
-    match /tenants/{tenantId}/public/{allPaths=**} {
-      allow read: if true;
-      allow write: if false;
+    function signedIn() { return request.auth != null; }
+    function membershipId(tenantId) { return tenantId + "_" + request.auth.uid; }
+    function tenantActive(tenantId) {
+      return firestore.exists(/databases/(default)/documents/tenants/$(tenantId))
+        && firestore.get(/databases/(default)/documents/tenants/$(tenantId)).data.status == "active";
+    }
+    function member(tenantId) {
+      return signedIn() && tenantActive(tenantId)
+        && firestore.exists(/databases/(default)/documents/memberships/$(membershipId(tenantId)))
+        && firestore.get(/databases/(default)/documents/memberships/$(membershipId(tenantId))).data.userId == request.auth.uid
+        && firestore.get(/databases/(default)/documents/memberships/$(membershipId(tenantId))).data.tenantId == tenantId
+        && firestore.get(/databases/(default)/documents/memberships/$(membershipId(tenantId))).data.status == "active";
+    }
+    function role(tenantId) {
+      return firestore.get(/databases/(default)/documents/memberships/$(membershipId(tenantId))).data.role;
+    }
+    function memberProfessionalId(tenantId) {
+      return firestore.get(/databases/(default)/documents/memberships/$(membershipId(tenantId))).data.professionalId;
+    }
+    function memberCustomerId(tenantId) {
+      return firestore.get(/databases/(default)/documents/memberships/$(membershipId(tenantId))).data.customerId;
+    }
+    function platformOwner() {
+      return signedIn()
+        && firestore.exists(/databases/(default)/documents/platformUsers/$(request.auth.uid))
+        && firestore.get(/databases/(default)/documents/platformUsers/$(request.auth.uid)).data.role == "platform_owner"
+        && firestore.get(/databases/(default)/documents/platformUsers/$(request.auth.uid)).data.status == "active";
+    }
+    function tenantStaff(tenantId) {
+      return member(tenantId) && role(tenantId) in ["tenant_owner","tenant_admin"];
+    }
+    // Operational circuit breaker for storage-cost incidents. Not a commercial entitlement.
+    function uploadsAllowed(tenantId) {
+      return tenantActive(tenantId)
+        && firestore.get(/databases/(default)/documents/tenants/$(tenantId)).data.get("mediaUploadsPaused",false) != true;
+    }
+    function imageUpload() {
+      return request.resource != null
+        && request.resource.size > 0
+        && request.resource.size <= 5 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp)');
     }
 
+    // PERSISTENT_BUSINESS — studio's public logo, banner and portfolio media.
+    // Never delete automatically; client cannot delete until a trusted lifecycle exists.
+    match /tenants/{tenantId}/public/{allPaths=**} {
+      allow read: if tenantActive(tenantId) || platformOwner();
+      allow create: if resource == null && uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
+      allow update, delete: if false;
+    }
+
+    // Files private to tenant staff; never readable by a generic active customer.
     match /tenants/{tenantId}/private/{allPaths=**} {
-      // Fechado por padrão até memberships/RBAC serem ligados e testados no próximo GOAL.
-      allow read, write: if false;
+      allow read: if tenantStaff(tenantId) || platformOwner();
+      allow create: if resource == null && uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
+      allow update, delete: if false;
+    }
+
+    // Per-professional space. Other professionals and customers may not read it.
+    match /tenants/{tenantId}/professionals/{professionalId}/{allPaths=**} {
+      allow read: if tenantStaff(tenantId) || platformOwner()
+        || (member(tenantId) && role(tenantId) == "professional"
+          && memberProfessionalId(tenantId) == professionalId);
+      allow create: if resource == null && uploadsAllowed(tenantId) && imageUpload()
+        && (tenantStaff(tenantId) || platformOwner()
+          || (member(tenantId) && role(tenantId) == "professional"
+            && memberProfessionalId(tenantId) == professionalId));
+      allow update, delete: if false;
+    }
+
+    // Per-customer private files, not visible to unrelated customers/professionals.
+    match /tenants/{tenantId}/customers/{customerId}/{allPaths=**} {
+      allow read: if tenantStaff(tenantId) || platformOwner()
+        || (member(tenantId) && role(tenantId) == "customer"
+          && memberCustomerId(tenantId) == customerId);
+      allow create: if resource == null && uploadsAllowed(tenantId) && imageUpload()
+        && (tenantStaff(tenantId) || platformOwner()
+          || (member(tenantId) && role(tenantId) == "customer"
+            && memberCustomerId(tenantId) == customerId));
+      allow update, delete: if false;
     }
   }
 }

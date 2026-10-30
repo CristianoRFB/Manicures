@@ -1,156 +1,23 @@
-GOAL — CONCLUIR CORE MULTI-TENANT DO SAAS MANICURE NO FIREBASE
+NEXT GOAL — GLOBAL STANDARD v01 (AGUARDAR NOVA ORDEM)
 
-CONTEXTO
-Esta base já contém uma aplicação executável React/Vite/TypeScript com tenant resolver, tenant DEMO, fluxo público serviço → profissional → horário → agendamento, Tenant Admin shell, Platform Owner shell, modelo de domínio, Rules iniciais e testes unitários.
+O CORE da Manicure está tecnicamente pronto para o próximo estágio.
 
-NÃO reconstrua a base.
-NÃO implemente pricing/entitlements completos ainda.
-NÃO altere preços/planos/limites aprovados.
-
-OBJETIVO
-Transformar os adapters/shells DEMO desta base em um CORE multi-tenant real e seguro sobre Firebase, provando isolamento Tenant A × Tenant B e deixando o produto pronto para o Global Standard v01 em um GOAL posterior.
-
-ESCOPO
-1. Conectar Firebase Auth real usando configuração por env.
-2. Implementar repository Firestore preservando os contratos de domínio existentes.
-3. Persistir memberships com roles: platform_owner, tenant_owner, tenant_admin, professional, customer quando aplicável.
-4. Implementar Platform Owner real, sem perder identidade ao acessar tenant.
-5. Manter tenant resolver por slug e validar tenant status.
-6. Criar um segundo tenant DEMO B isolado.
-7. Substituir session demo por auth real nas áreas privadas; manter fluxo público sem login obrigatório.
-8. Implementar/revisar Firestore Rules e Storage Rules tenant-aware.
-9. Mover criação protegida de Appointment para camada confiável apropriada à stack, revalidando disponibilidade e impedindo double booking.
-10. Preservar priceSnapshotCents e durationSnapshotMin.
-11. Criar testes com Firebase Emulator Suite para Tenant A × Tenant B, roles, membership disabled, tenant suspended, troca manual de IDs e booking conflict.
-12. Atualizar docs/CURRENT.md, docs/STATUS.md, docs/ARCHITECTURE.md, docs/DATA_MODEL.md e docs/SECURITY.md.
-13. Ao final, produzir readiness gate com PASS/PARTIAL/FAIL para tenant resolver, isolamento A×B, memberships/RBAC, Rules/backend tenant-aware, Platform Owner, source of truth, feature states e pricing matrix.
-
-FORA DE ESCOPO
-- PlanCatalog completo
-- EntitlementService
-- FeatureGating comercial
-- Limits comerciais
-- DemoMode comercial do Global Standard
-- gateway/billing/checkout/webhooks
-- landing/pricing page
-- WhatsApp oficial
-- múltiplas unidades
-- features NEXT/DEFERRED
-- biblioteca compartilhada global
-
-CRITÉRIOS DE ACEITE
-- npm run typecheck passa.
-- npm test passa.
-- npm run build passa.
-- Firebase emulator tests passam.
-- Tenant A não lê/escreve Tenant B.
-- membership disabled é negada.
-- tenant suspended é bloqueado conforme regra.
-- professional/customer não escalam privilégio.
-- booking concorrente não gera overlap inválido.
-- Platform Owner possui acesso global explícito e auditável.
-- novo tenant não exige clone de código/deploy.
-- documentação vigente reflete a implementação real.
-
-RESULTADO ESPERADO
-Declarar ao final:
+READINESS_STATUS:
 READY_FOR_GLOBAL_STANDARD_IMPLEMENTATION
-ou
-NEEDS_MULTITENANT_CORE_FIRST
-com evidência objetiva.
-FASE FINAL OBRIGATÓRIA — DOCUMENTAÇÃO VISUAL / LEADS / MANIFESTOS
 
-Esta fase é executada SOMENTE depois de concluir a implementação CORE, migrações necessárias, testes, validação Tenant A × Tenant B e build.
+Evidência:
+- code SHA validado: 3667c1ef6137be80ebbd147c7a11f59cc33a3f8c
+- GitHub Actions run 40509207543: PASS em typecheck, unit, Worker, emulator Rules/booking, docs:check e build.
 
-Fonte obrigatória:
-- docs/ecosystem/SAAS_PADRAO_DOCS_LEADS_IMAGENS_GERADAS.md
-- docs/CURRENT.md
-- docs/DIAGRAMS_MANIFEST.md
-- docs/LEADS_MANIFEST.md
+NÃO execute automaticamente este próximo estágio sem uma nova ordem explícita.
 
-ORDEM OBRIGATÓRIA FINAL
-IMPLEMENTAR CORE
-→ MIGRAR
-→ TESTAR
-→ VALIDAR TENANT A × B
-→ BUILD
-→ DOCUMENTAR
-→ CAPTURAR SCREENSHOTS
-→ ATUALIZAR DIAGRAMAS
-→ GERAR VISUAIS CONCEITUAIS
-→ ATUALIZAR MANIFESTOS
-→ npm run docs:check
+Quando autorizado, implementar o Global Standard v01 usando SOMENTE preços, limites, trial e feature distribution já aprovados em docs/consolidation.
 
-1. DOCUMENTAÇÃO CANÔNICA
-- manter `docs/CURRENT.md` apontando para `docs/versions/v01-codex-ready-core-first/` enquanto não houver mudança arquitetural que justifique nova versão;
-- atualizar ARCHITECTURE.md, DATA_MODEL.md, SECURITY.md, FIREBASE_STRUCTURE.md, PROJECT_STRUCTURE.md e STATUS.md com o sistema REAL resultante;
-- atualizar SCREENS.md com telas existentes, alteradas, planejadas e respectivos screenshots reais;
-- não documentar paths, collections, Rules ou telas inexistentes como se fossem reais.
+Continuam fora:
+- billing/gateway/checkout/webhooks/dunning;
+- marketplace;
+- custom domain automático;
+- biblioteca global compartilhada;
+- NEXT/DEFERRED não necessários ao standard.
 
-2. FIREBASE / ESTRUTURA
-- documentar Auth, Firestore, Storage, Rules, índices, emulator/tests, memberships e ownership tenant-aware realmente implementados;
-- nunca registrar secrets.
-
-3. DIAGRAMAS
-- preservar os diagramas baseline que continuarem semanticamente corretos;
-- atualizar somente os afetados pelo CORE real;
-- criar diagramas adicionais somente quando forem realmente úteis;
-- manter fonte editável em `docs/versions/v01-codex-ready-core-first/diagrams/source/`;
-- manter SVG atualizado em `docs/versions/v01-codex-ready-core-first/diagrams/rendered/`;
-- preferir Mermaid + SVG;
-- atualizar `docs/DIAGRAMS_MANIFEST.md`.
-
-4. SCREENSHOTS REAIS
-- executar a aplicação em ambiente local/emulator/demo;
-- capturar screenshots REAIS das principais telas implementadas;
-- cobrir desktop/mobile quando fizer sentido;
-- priorizar: fluxo público, booking, tenant admin e platform owner, conforme existirem após o CORE;
-- salvar em `docs/versions/v01-codex-ready-core-first/screenshots/`;
-- referenciar em SCREENS.md;
-- se uma tela não existir, NÃO fingir screenshot.
-
-5. IMAGENS GERADAS / CONCEITUAIS
-- criar uma pequena base visual útil do SaaS Manicure, sem exagero;
-- exemplos permitidos: overview/capa, dashboard idealizado, tela pública/mobile idealizada, composição de apresentação;
-- salvar exclusivamente em `docs/versions/v01-codex-ready-core-first/generated/` nas subpastas concepts/, mockups/, lead-adapted/ ou covers/;
-- registrar cada peça em GENERATED_VISUALS.md com tipo, objetivo, base e indicação clara de REAL vs IDEALIZADO;
-- imagem gerada NUNCA conta como screenshot real ou prova de implementação;
-- não redesenhar algo já aprovado sem necessidade.
-
-6. LEADS
-- esta vertical NÃO possui lead real confirmado na baseline atual;
-- NÃO inventar lead;
-- manter `docs/LEADS_MANIFEST.md`, `LEADS_OVERVIEW.md` e `leads/` preparados;
-- se um lead real já tiver sido fornecido ao Codex no momento da execução, preservar/organizar somente esse material comprovado seguindo o padrão oficial;
-- não criar pessoa, empresa, Instagram, telefone, endereço ou branding fictício como lead real.
-
-7. MANIFESTOS / VERIFICADORES
-- atualizar `docs/DIAGRAMS_MANIFEST.md`;
-- atualizar `docs/LEADS_MANIFEST.md`;
-- atualizar GENERATED_VISUALS.md e LEADS_OVERVIEW.md;
-- manter `npm run docs:diagrams`;
-- manter `npm run docs:check`;
-- manter `npm run docs:leads` quando aplicável.
-
-8. DOCS CHECK
-`npm run docs:check` deve validar pelo menos:
-- CURRENT aponta para versão existente;
-- docs obrigatórios da versão existem;
-- FIREBASE_STRUCTURE.md existe quando Firebase é usado;
-- DIAGRAMS_MANIFEST e LEADS_MANIFEST existem;
-- diagram source/rendered referenciados existem;
-- paths de screenshots referenciados existem;
-- paths de generated visuals referenciados existem;
-- leads listados no manifesto possuem pasta/documentação correspondente;
-- links/caminhos locais documentados existem.
-
-9. CRITÉRIO FINAL DE DOCUMENTAÇÃO
-Só considerar a fase documental concluída quando estiver claramente separado:
-- CÓDIGO REAL;
-- DOCS TÉCNICOS;
-- DIAGRAMAS DO SISTEMA REAL;
-- SCREENSHOTS REAIS;
-- IMAGENS GERADAS/CONCEITUAIS;
-- LEADS ORGANIZADOS QUANDO HOUVER.
-
-Esta nova fase NÃO altera CORE_FIRST, preços, planos, limites, prioridades, nem autoriza Global Standard completo de pricing/entitlements.
+Screenshots reais continuam pendentes até existir ferramenta/ambiente interativo adequado; não substituir por mockup ou imagem gerada.

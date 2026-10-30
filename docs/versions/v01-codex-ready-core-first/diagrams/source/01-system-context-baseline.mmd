@@ -1,9 +1,12 @@
 flowchart LR
-  Browser[Browser] --> React[React/Vite App]
-  React --> Router[React Router]
-  Router --> Resolver[Tenant Resolver por slug]
-  Resolver --> DemoRepo[Demo Repository local]
-  React --> FirebaseAdapter[Firebase adapter opcional]
-  DemoRepo --> Booking[Happy path de agendamento DEMO]
-  Booking --> TenantAdmin[Tenant Admin shell]
-  React --> Platform[Platform Owner shell]
+  Public[Cliente público] --> Web[React/Vite]
+  Admin[Tenant Admin] --> Auth[Firebase Auth]
+  Owner[Platform Owner] --> Auth
+  Web --> Resolver[Tenant Resolver / tenantSlugs]
+  Resolver --> Firestore[(Firestore)]
+  Auth --> Membership[Membership/RBAC]
+  Membership --> Firestore
+  Web --> Worker[Booking Worker]
+  Worker --> Firestore
+  Worker --> Locks[bookingLocks]
+  Firestore --> Storage[Firebase Storage]

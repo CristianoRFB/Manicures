@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "lib": [
+      "ES2022",
+      "WebWorker"
+    ]
+  },
+  "include": [
+    "src/index.ts",
+    "../src/commercial/planCatalog.ts",
+    "../src/commercial/entitlements.ts",
+    "../src/domain/types.ts",
+    "src/mediaStorage.ts"
+  ]
+}

@@ -1,31 +1,20 @@
-# FIREBASE_STRUCTURE
+# FIREBASE STRUCTURE
 
-## Estado baseline pré-Codex
+## Auth
+Firebase Authentication para áreas privadas. Emulator local em `127.0.0.1:9099` quando habilitado.
 
-Existem no artefato:
+## Firestore
+Collections canônicas documentadas em `docs/DATA_MODEL.md`.
+Rules em `/firestore.rules`.
+Emulator em `127.0.0.1:8080`.
 
-- `src/lib/firebase.ts` como adapter/configuração;
-- `firebase.json`;
-- `firestore.rules`;
-- `storage.rules`;
-- `firestore.indexes.json`.
+## Storage
+Rules em `/storage.rules`.
+Emulator em `127.0.0.1:9199`.
 
-Firebase Auth real, repositório Firestore real, memberships persistidas e validação completa por Emulator ainda pertencem ao próximo GOAL CORE_FIRST.
+## Booking server-side
+Cloudflare Worker em `/worker` usa Firestore REST com Service Account fornecida por secrets. O browser não recebe essas credenciais.
 
-## Obrigação pós-implementação
-
-Depois do CORE real estar implementado, documentar somente o que existir de verdade:
-
-- projeto/configuração Firebase usada pela aplicação;
-- Auth/providers;
-- collections e ownership por tenant;
-- memberships/RBAC;
-- índices;
-- Storage paths;
-- Firestore Rules;
-- Storage Rules;
-- Functions/Workers quando existirem;
-- emulator/test strategy;
-- migrações/backfills aplicados.
-
-Não registrar secrets.
+## Testes
+`npm run test:rules` executa Rules contra Firebase Emulator Suite.
+`npm run emulators:seed` prepara dois tenants DEMO e usuários de teste para execução manual local.

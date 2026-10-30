@@ -1,65 +1,36 @@
-# STATUS
+# STATUS — Manicure
 
-## Source class
+## Fases
+- CORE_FIRST: implementado e validado anteriormente (evidência CI 40509478867).
+- GLOBAL_STANDARD_V01: em implementação nesta branch; pricing, catálogo, trial, demo, quotas, overrides, plano manual e downgrade sem exclusão de dados existem no código.
+- Produção: **NÃO DEPLOYED**. PR ainda draft e sem merge na main.
 
-`EMPTY_OR_NONVIABLE → ZIP_BASE`
+## Medição técnica
+**41/42 = 97,6% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
+Inclui QA em navegador DEMO/emuladores, mas NÃO inclui deploy, staging real, métricas do provedor, dados reais nem features comerciais DEFERRED.
+Ver `docs/PRE_PC_COMPLETENESS.md`.
 
-## Stage
+## Evidência por módulo
+- M1 Global v01: PlanCatalog, EntitlementService, FeatureGating em frontend/Rules/Worker, quotas 1/3/10 profissionais e 0/2/5 admins, demo, trial e atribuição manual com auditoria.
+- M2 Agenda/serviços: CRUD de serviço com arquivamento, edição de profissional/serviços vinculados, expediente semanal, pausas, folgas, booking por slots e CAS, remarcação atômica, status/no-show e histórico preservado.
+- M3 UX: painel privado do tenant, agenda profissional filtrada, autoatendimento de cliente verificado, cancelamento próprio, editor white-label e histórico admin.
+- M4 Operação: convites 48h de uso único permitem novos vínculos e transições seguras de customer/professional/admin com CAS e quotas; reconciliação de staff, downgrade sem exclusão, CSV, recuperação Firebase e isolamento A×B.
+- M5 Qualidade: CI TypeScript, unitários inclusive comerciais e parser de limites, Worker, Auth/Firestore/Storage Emulator com exclusão física fictícia, Playwright real desktop/mobile com screenshots DEMO, build e docs check; `npm run test:pre-pc`.
 
-`CORE_FIRST`
+## Incompleto (não afirmar pronto)
+- Reservas guest antigas: pedido autenticado, revisão independente manual do studio e vínculo CAS auditado implementados; nenhuma associação automática por telefone e nenhum dado real migrado.
+- Convites de entrega manual e transição de membros existentes implementados; transferências de tenant_owner deliberadamente proibidas, sem envio automático de e-mail.
+- Mídia: execução física implementada, mas DESABILITADA por padrão; exige Platform Owner, pré-aprovação, geração exata, CAS, verificação no Storage e audit log. Testes com Firebase Storage Emulator real; ainda falta staging, validação de IAM, governança de egress/caches/backups e LGPD total (docs/STORAGE_DELETION_RUNBOOK.md).
+- Trial de 14 dias mantém trialUntil em edições repetidas; UI avisa vencimento, expiração e suspensões. Estado comercial continua manual, sem cobrança automática.
+- Chromium desktop/mobile com screenshots REAIS do DEMO e telas privadas com Firebase Emulators sintéticos executados em Actions; ainda faltam QA em staging, dispositivo físico, acessibilidade profunda e deploy.
 
-## Implementado nesta base
+## Preservações
+- Tenant A × Tenant B e autenticação forte são CORE, nunca Premium.
+- Preços, nomes e limites APROVADOS permanecem intactos.
+- Sem gateway, checkout, billing, automações pagas, deploy ou biblioteca npm global.
+- Sem acesso a dados/segredos de produção.
 
-- app React/Vite/TypeScript;
-- tenant resolver;
-- demo tenant;
-- public booking happy path;
-- tenant admin shell;
-- platform owner shell;
-- domain model;
-- local demo repository;
-- overlap protection local;
-- Firestore/Storage Rules base;
-- Firebase config adapter;
-- tests.
+Leia `docs/CURRENT.md` para fonte vigente; consulte Actions do **SHA final** antes de declarar CI PASS.
 
-## Ainda falta antes de pricing/entitlements completos
-
-- Firebase Auth real;
-- Firestore repository real;
-- memberships/RBAC persistidos;
-- Platform Owner real;
-- isolamento A × B provado por emulator/tests;
-- Rules validadas no emulator;
-- backend confiável para criação de Appointment e conflitos;
-- segundo tenant de teste persistido;
-- documentação pós-implementação.
-
-## Validação do pacote
-
-Resultados no ambiente de geração:
-
-- core TypeScript smoke compile: **PASS**;
-- smoke tests de disponibilidade/RBAC/tenant resolver: **PASS**;
-- `node scripts/check-no-secrets.mjs`: **PASS**;
-- `npm install`: **BLOCKED_BY_ENVIRONMENT** (registry indisponível/timeout);
-- `npm run typecheck`: **NOT_RUN_WITH_REAL_DEPENDENCIES**;
-- `npm test` (Vitest): **NOT_RUN_WITH_REAL_DEPENDENCIES**;
-- `npm run build`: **NOT_RUN_WITH_REAL_DEPENDENCIES**.
-
-A primeira ação no Codex deve ser instalar dependências e rodar os três checks reais. Nenhum resultado foi fingido.
-## Atualização pré-Codex — padrão visual/documental
-
-- padrão `SAAS_PADRAO_DOCS_LEADS_IMAGENS_GERADAS.md`: **INCORPORADO**;
-- estrutura versionada baseline: **CRIADA**;
-- DIAGRAMS_MANIFEST: **CRIADO**;
-- LEADS_MANIFEST: **CRIADO**;
-- diagramas técnicos baseline source/rendered: **2 pares**;
-- screenshots reais: **NÃO CAPTURADOS NESTA ETAPA**;
-- imagens geradas/conceituais: **NÃO GERADAS NESTA ETAPA**;
-- leads reais confirmados: **0**;
-- `docs:check`: preparado;
-- `docs:diagrams`: preparado;
-- `docs:leads`: preparado.
-
-A fase visual final permanece no encerramento do próximo GOAL, depois do CORE e build.
+## Gate de merge (separado de deploy)
+Após revisão e CI completos, o código pode ser integrado na `main` sem iniciar produção. `npm run release:gate` bloqueia configurações destrutivas versionadas; staging/IAM/egress e QA físico continuam exigências externas.

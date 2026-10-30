@@ -1,112 +1,88 @@
-# SaaS Manicure — CODEX-READY Base
+# SaaS Manicure — CORE FIRST
 
-Base criada porque o repositório associado `CristianoRFB/Manicures` está vazio e não existe codebase aproveitável disponível no Project/chat.
+Base React/Vite/TypeScript para o SaaS Manicure Multi-Tenant White-Label.
 
-## Objetivo desta base
+## Estado
+Esta branch contém o CORE multi-tenant e implementação **parcial** do Global Standard v01. Não está implantada em produção.
 
-Entregar um **CORE FIRST executável**, não o produto inteiro e não o Global Standard de pricing completo.
+- Firebase Auth + recuperação de senha, memberships/RBAC e Platform Owner;
+- Firestore e Storage Rules, com testes de isolamento Tenant A × Tenant B;
+- PlanCatalog, quotas comerciais, overrides, trial/demo e atribuição manual auditada;
+- Booking Worker, locks, disponibilidade, expediente, folgas e remarcação;
+- gestão do studio: serviços, profissionais, agenda, identidade visual, CSV e clientes;
+- área da profissional `/professional/:tenantSlug` e cliente `/customer/:tenantSlug`;
+- reservas guest sem conta permanecem possíveis, mas **não** são vinculadas automaticamente ao histórico privado;
+- portfólio persistente de imagens reais com normalização WebP/remoção de metadados originais, sem TTL ou exclusão automática;
+- convites seguros e auditados de 48 horas para staff, inclusive conversão verificada de customer/professional/admin; quota no aceite;
+- reconciliação de contadores legados exclusiva do Platform Owner, sem alterar dados da equipe;
+- trial de 14 dias sem prorrogação silenciosa, avisos de vencimento/estado;
+- controle emergencial de uploads por tenant auditado e galeria paginada com 12 fotos por página;
+- solicitação/revisão e exclusão física controlada de mídia com geração exata, CAS e auditoria; **desabilitada por padrão, validada somente no Storage Emulator, nunca executada em produção**.
 
-Happy path já funcional em modo DEMO local:
+**Métrica de engenharia pré-PC:** 41/42 (97,6%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
 
-```text
-serviço → profissional → data/horário → agendamento → painel do tenant
-```
-
-Também existem:
-
-- tenant resolver por slug;
-- tenant DEMO explícito;
-- modelo de Tenant, Membership, Service, Professional e Appointment;
-- RBAC conceitual;
-- shell de Platform Owner;
-- shell de Tenant Owner;
-- white-label básico;
-- proteção contra double booking no repositório demo;
-- snapshots de preço/duração no Appointment;
-- Firebase Web adapter opcional;
-- Firestore/Storage Rules de base;
-- documentação técnica;
-- testes unitários.
-
-## O que NÃO está implementado
-
-- Firebase Auth real;
-- Firestore repository real;
-- Storage write flow;
-- Tenant A × Tenant B em emulator;
-- migração de cliente real (não há cliente real comprovado);
-- PlanCatalog/EntitlementService/FeatureGating comercial completo;
-- billing/gateway;
-- landing/pricing comercial.
-
-## Rodar
-
+## Setup
 ```bash
+cp .env.example .env.local
 npm install
-npm run dev
-```
-
-Abra:
-
-- `/demo` — página pública do tenant DEMO
-- `/demo/book` — agendamento
-- `/app/demo` — Tenant Owner shell
-- `/platform` — Platform Owner shell
-
-## Validar
-
-```bash
 npm run typecheck
 npm test
-npm run build
-node scripts/check-no-secrets.mjs
-```
-
-## Firebase
-
-Copie `.env.example` para `.env.local` e preencha somente configuração Web pública quando for ligar o Firebase real.
-
-**Não coloque service account ou segredo de servidor no frontend.**
-
-A base roda sem Firebase em modo DEMO local para permitir desenvolvimento imediato.
-
-## Deploy
-
-A saída `dist/` é compatível com hosting estático, inclusive Cloudflare Pages. `public/_redirects` suporta SPA routing.
-
-## Status de validação
-
-No ambiente de geração, a instalação via npm registry não ficou disponível dentro da janela de execução. Por isso o build Vite/Vitest completo não foi fingido como executado.
-
-Foram executados com sucesso:
-
-- compilação/smoke-check do núcleo TypeScript com o compilador local;
-- testes de lógica de disponibilidade, RBAC e tenant resolver;
-- scan de credenciais óbvias.
-
-Ao abrir no Codex, execute `npm install`, `npm run typecheck`, `npm test` e `npm run build` antes de qualquer alteração funcional. Veja `docs/STATUS.md`.
-## Padrão documental visual
-
-Este artefato incorpora `SAAS_PADRAO_DOCS_LEADS_IMAGENS_GERADAS.md` como regra oficial.
-
-Fonte documental canônica:
-
-```text
-docs/CURRENT.md
-→ docs/versions/v01-codex-ready-core-first/
-```
-
-Checks preparados:
-
-```bash
+npm run worker:check
+npm run test:pre-pc
 npm run docs:check
-npm run docs:diagrams
-npm run docs:leads
+npm run build
 ```
 
-Nesta atualização pré-Codex:
-- diagramas baseline técnicos foram adicionados e marcados para revisão pós-CORE;
-- screenshots reais não foram inventados;
-- imagens conceituais não foram geradas prematuramente;
-- nenhum lead real foi inventado;
-- a criação/captura visual final está explicitamente no fim de `CODEX_NEXT_GOAL.txt`.
+## Emulator local
+```bash
+npm run emulators
+# em outro terminal
+npm run emulators:seed
+npm run dev
+# Worker
+npx wrangler dev --config worker/wrangler.toml
+```
+
+A sessão privada DEMO fake foi removida. Para áreas privadas use Auth real/emulator.
+
+## Booking Worker
+Configurar secrets no ambiente do Worker:
+- `FIREBASE_PROJECT_ID`
+- `FIREBASE_CLIENT_EMAIL`
+- `FIREBASE_PRIVATE_KEY`
+
+Nunca versionar esses valores.
+
+## Documentação
+Leia `docs/CURRENT.md` primeiro.
+
+## Novos fluxos de teste
+- Cliente: confirmar e-mail no Auth Emulator, ativar perfil do tenant, reservar autenticado e cancelar somente a própria reserva.
+- Storage: `npm run test:emulator` agora cobre Auth, Firestore e Storage; no app, imagens reais usam `tenants/{tenantId}/public/portfolio`.
+- Worker local: copiar `worker/.dev.vars.example` para `worker/.dev.vars`, sem nenhuma chave ou dado de produção.
+- Mídia: ler `docs/MEDIA_POLICY.md`; não prometer armazenamento ilimitado nem prazo genérico para exclusão.
+
+A branch segura permanece em PR draft, sem merge e sem deploy automático.
+
+## Convites de equipe e reconciliação
+- O proprietário gera e gerencia convites pelo painel `/app/:tenantSlug`, com código de uso único e validade de 48 horas; o envio é MANUAL, ainda não há integração de e-mail transacional.
+- O convidado entra em `/invite/:tenantSlug`, usa sua conta Firebase com e-mail verificado e informa o código; acesso é criado atomicamente pelo Worker.
+- Convite de administrador consome quota no ACEITE. Converter membro existente exige NOVO convite, e-mail verificado e aceite do titular, com atualização atômica e preservação do histórico; promoção direta ainda é proibida.
+- O Platform Owner pode reconciliar contadores divergentes no painel `/platform`, com justificativa e auditoria; isso nunca remove vínculos nem muda plano.
+
+## Mídia: execução física com confirmação
+- `/platform` tem inventário de até 100 objetos por página (geração/tamanho) e execução após aprovação; exige confirmação literal e justificativa.
+- `MEDIA_DELETION_ENABLED` ausente/false impede todas as remoções; `FIREBASE_STORAGE_BUCKET` obrigatório, credencial de serviço e revisão prévia. Não habilitar em produção sem QA staging e processo autorizado.
+- Teste de exclusão de arquivo fictício rodou no Firebase Storage Emulator real; caches externos e backups não são eliminados por isso.
+- Fluxo completo e suas limitações: `docs/STORAGE_DELETION_RUNBOOK.md`.
+
+## Verificações de navegador e recuperação de histórico
+- `npm run qa:browser` captura as telas públicas em Chromium desktop/mobile com DEMO local e **sem dados reais**.
+- `npm run qa:browser:auth` captura áreas privadas com Auth/Firestore Emulators sintéticos após `scripts/seed-emulator.mjs`; CI guarda os screenshots em artefato Actions por 14 dias.
+- `/customer/:tenantSlug` permite pedir revisão de um agendamento antigo feito sem login; aprovação na área admin exige identidade confirmada independentemente. Não há reivindicação automática por telefone. Ler `docs/GUEST_HISTORY_LINKING.md`.
+
+## Integração segura à main (não é deploy)
+- `npm run release:gate` integra verificação de configurações de exclusão, rules e testes no CI.
+- `npm test` inclui suites comerciais; limite manual de equipe validado por função testada.
+- Varredura operacional de capacidade `/api/platform/media/inventory/scan` classifica bytes observados por tenant; não fornece custos, fatura ou egress.
+- A integração de código na main é permitida somente após CI verde e revisão. Habilitação de produção continua bloqueada por IAM, GCS staging, medição de custos/egress e QA físico.

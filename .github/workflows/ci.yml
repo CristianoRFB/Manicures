@@ -1,0 +1,57 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main, "feat/**"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npm install --no-audit --no-fund
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run worker:check
+      - run: npm run test:emulator
+      - run: npm run docs:check
+      - run: npm run release:gate
+      - run: npm run build
+
+  browser-demo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm install --no-audit --no-fund
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - run: npx playwright install --with-deps chromium
+      - run: npm run qa:browser
+      - name: Test authenticated screens with synthetic Firebase tenants
+        run: npx firebase --project manicure-demo emulators:exec --only auth,firestore,storage "node scripts/seed-emulator.mjs && npm run qa:browser:auth"
+      - name: Upload actual demo screenshots and browser report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: manicure-real-demo-browser-evidence
+          path: |
+            qa-evidence/screenshots/
+            qa-report/
+            qa-report-auth/
+            test-results/
+          retention-days: 14
+          if-no-files-found: warn

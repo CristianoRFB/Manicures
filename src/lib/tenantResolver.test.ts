@@ -4,7 +4,7 @@ import { resolveTenant } from "./tenantResolver";
 
 describe("tenant resolver", () => {
   const repo = new DemoRepository();
-  it("resolve demo", async () => expect((await resolveTenant(repo, "demo"))?.id).toBe("tenant-demo"));
+  it("resolve demo", async () => expect((await resolveTenant(repo, "demo"))?.id).toBe("tenant-demo-a"));
   it("rejeita rota reservada", async () => expect(await resolveTenant(repo, "platform")).toBeNull());
   it("rejeita slug inexistente", async () => expect(await resolveTenant(repo, "nao-existe")).toBeNull());
 });

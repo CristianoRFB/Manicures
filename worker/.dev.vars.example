@@ -1,0 +1,13 @@
+# Local-only Worker environment; copy to worker/.dev.vars and NEVER deploy as production settings.
+# Use the same synthetic project ID on frontend (.env.local) and Firebase emulators.
+FIREBASE_PROJECT_ID=manicure-demo
+FIREBASE_CLIENT_EMAIL=none@local.invalid
+FIREBASE_PRIVATE_KEY=NOT_USED_IN_EMULATOR
+FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
+FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
+ALLOWED_ORIGIN=http://localhost:5173
+
+# Optional Storage emulation for inventory; keep physical deletion OFF.
+FIREBASE_STORAGE_BUCKET=manicure-demo.appspot.com
+FIREBASE_STORAGE_EMULATOR_HOST=127.0.0.1:9199
+MEDIA_DELETION_ENABLED=false
