@@ -1615,6 +1615,47 @@ async function reconcileTenantStaffUsage(request:Request,env:Env):Promise<Respon
   return json(env,{ok:true,before:previous,after:{professionalsActive,tenantAdminsAdditional},auditId});
 }
 
+/** Tenant-wide emergency pause for new Storage writes. Does not revoke read or delete data. */
+async function setTenantMediaUploadPause(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const paused=data.paused;
+  const reason=typeof data.reason==="string"?data.reason.trim():"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId)||typeof paused!=="boolean"||
+    reason.length<10||reason.length>300)
+    return json(env,{error:"Tenant, estado ou justificativa inválidos."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||actor.actorRole!=="platform_owner")
+    return json(env,{error:"Somente Platform Owner pode pausar uploads."},403);
+  const tenant=await getDocument(env,token,`tenants/${tenantId}`);
+  if(!tenant||!tenant.updateTime)return json(env,{error:"Tenant não encontrado."},404);
+  const previous=bool(tenant,"mediaUploadsPaused"),now=new Date().toISOString(),auditId=crypto.randomUUID();
+  if(previous===paused)return json(env,{ok:true,tenantId,paused,unchanged:true});
+  const writes=[
+    {update:{name:docName(env,`tenants/${tenantId}`),
+      fields:fields({mediaUploadsPaused:paused,mediaUploadsPauseUpdatedAt:now})},
+      updateMask:{fieldPaths:["mediaUploadsPaused","mediaUploadsPauseUpdatedAt"]},
+      currentDocument:{updateTime:tenant.updateTime}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+        action:"media.upload_pause",resourceType:"tenant",resourceId:tenantId,
+        reason,before:{mediaUploadsPaused:previous},after:{mediaUploadsPaused:paused},createdAt:now})},
+      currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ABORTED/.test(detail))
+      return json(env,{error:"Tenant alterado simultaneamente; atualize."},409);
+    console.error("Media pause update failed",response.status,detail.slice(0,170));
+    return json(env,{error:"Não foi possível alterar bloqueio de upload."},500);
+  }
+  return json(env,{ok:true,tenantId,paused,auditId});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1659,6 +1700,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
       try { return await manageTenantAdmin(request,env); }
       catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
+    }
+    if(request.method==="POST" && url.pathname==="/api/platform/media/pause"){
+      try{return await setTenantMediaUploadPause(request,env);}
+      catch(error){console.error("Media pause update failed",error);return json(env,{error:"Falha ao alterar upload."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/platform/usage/reconcile"){
       try{return await reconcileTenantStaffUsage(request,env);}
