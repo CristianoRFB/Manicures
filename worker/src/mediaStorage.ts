@@ -44,6 +44,42 @@ export interface InventoryPage {
   objects:StoredObject[];
   nextPageToken:string|null;
 }
+/** Bounded, resumable inventory. Does not measure egress or cloud billing.
+ * Storage list() pages are capped to avoid runtime exhaustion or unbounded spend.
+ * A new checkpoint cursor always belongs to the caller's already authorised prefix.
+ */
+export async function scanStoragePrefix(
+  env:MediaStorageEnv,token:string,prefix:string,
+  startPageToken?:string,maxPages=10,transport:typeof fetch=fetch,
+):Promise<{metrics:StorageInventoryStats;pagesScanned:number;complete:boolean;nextPageToken:string|null}>{
+  if(!/^tenants\/[A-Za-z0-9_-]{1,100}\/public\/portfolio\/$/.test(prefix))
+    throw new Error("Inventário restrito a portfolio de tenant.");
+  if(!Number.isInteger(maxPages)||maxPages<1||maxPages>20)
+    throw new Error("Limite de páginas inválido.");
+  if(startPageToken && startPageToken.length>1200)
+    throw new Error("Cursor inválido.");
+  const total:StorageInventoryStats={objectCount:0,totalBytes:0,
+    persistentCount:0,persistentBytes:0,legacyCount:0,legacyBytes:0,otherCount:0,otherBytes:0};
+  let tokenPage=startPageToken??"",pagesScanned=0;
+  const seen=new Set<string>();
+  do{
+    if(tokenPage&&seen.has(tokenPage))throw new Error("Storage retornou cursor cíclico.");
+    if(tokenPage)seen.add(tokenPage);
+    const page=await listStoredObjects(env,token,prefix,tokenPage||undefined,transport);
+    if(page.objects.some(item=>!item.name.startsWith(prefix)))
+      throw new Error("Storage retornou objeto fora do tenant.");
+    if(page.objects.length>100)throw new Error("Página excedeu 100 objetos.");
+    const stats=summarizeStoragePage(page.objects);
+    for(const k of Object.keys(total) as (keyof StorageInventoryStats)[]){
+      const sum=total[k]+stats[k];
+      if(!Number.isSafeInteger(sum))throw new Error("Soma de capacidade excedeu precisão.");
+      total[k]=sum;
+    }
+    pagesScanned++;
+    tokenPage=page.nextPageToken??"";
+  }while(tokenPage&&pagesScanned<maxPages);
+  return {metrics:total,pagesScanned,complete:!tokenPage,nextPageToken:tokenPage||null};
+}
 function bucketFor(env:MediaStorageEnv):string {
   const name=env.FIREBASE_STORAGE_BUCKET||
     (env.FIREBASE_STORAGE_EMULATOR_HOST?`${env.FIREBASE_PROJECT_ID}.appspot.com`:"");
