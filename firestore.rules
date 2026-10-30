@@ -102,6 +102,12 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      match /guestClaims/{claimId} {
+        // Owner approval and audit must happen together in the trusted Worker.
+        // Customer must not see claim status or another guest's identity via Firestore.
+        allow read, create, update, delete: if false;
+      }
+
       match /mediaRemovalRequests/{requestId} {
         // Removal requests contain user privacy reasons and require trusted Worker review.
         allow read, create, update, delete: if false;
