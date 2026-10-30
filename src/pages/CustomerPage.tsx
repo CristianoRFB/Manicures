@@ -28,6 +28,8 @@ export function CustomerPage(){
   const [working,setWorking]=useState(false);
   const [error,setError]=useState("");
   const [feedback,setFeedback]=useState("");
+  const [legacyBookingId,setLegacyBookingId]=useState("");
+  const [legacyBookingPhone,setLegacyBookingPhone]=useState("");
 
   useEffect(()=>{
     let live=true;
@@ -98,6 +100,25 @@ export function CustomerPage(){
     }catch(err){setError(err instanceof Error?err.message:"Falha ao ativar perfil.");}
     finally{setWorking(false);}
   }
+  async function requestLegacyHistory(event:FormEvent){
+    event.preventDefault();
+    if(!tenant||!user||working)return;
+    setWorking(true);setError("");setFeedback("");
+    try{
+      const response=await fetch(`${apiBase()}/api/customers/guest-claims/request`,{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await user.getIdToken(true)}`},
+        body:JSON.stringify({tenantId:tenant.id,appointmentId:legacyBookingId.trim(),
+          bookingPhone:legacyBookingPhone.trim()}),
+      });
+      const data=await response.json() as {error?:string;message?:string};
+      if(!response.ok)throw new Error(data.error??"Não foi possível solicitar histórico.");
+      setFeedback(data.message??"Pedido recebido para análise.");
+      setLegacyBookingId("");setLegacyBookingPhone("");
+    }catch(err){setError(err instanceof Error?err.message:"Não foi possível enviar pedido.");}
+    finally{setWorking(false);}
+  }
+
   async function cancel(appointmentId:string){
     if(!tenant||!user||working)return;
     setError("");setFeedback("");setWorking(true);
@@ -160,6 +181,21 @@ export function CustomerPage(){
       </section>:
       dataLoading?<p role="status">Carregando agendamentos…</p>:
       membership?.status==="active"&&membership.role==="customer"&&membership.customerId===user.uid?<>
+        <form className="form narrow" onSubmit={event=>void requestLegacyHistory(event)}>
+          <h2>Recuperar agendamento antigo sem login</h2>
+          <p>Informe o protocolo e o telefone utilizado na reserva. Isso não comprova sua identidade:
+            o studio deverá confirmá-la separadamente e aprovar o vínculo. Nenhum agendamento será
+            associado automaticamente por telefone.</p>
+          <label>Protocolo do agendamento antigo
+            <input required minLength={1} maxLength={100} value={legacyBookingId}
+              onChange={event=>setLegacyBookingId(event.target.value)}/></label>
+          <label>Telefone informado na reserva
+            <input required type="tel" inputMode="tel" autoComplete="tel"
+              value={legacyBookingPhone} onChange={event=>setLegacyBookingPhone(event.target.value)}/></label>
+          <button type="submit" className="button" disabled={working}>
+            {working?"Enviando…":"Solicitar análise do studio"}
+          </button>
+        </form>
         <div className="row between"><h2>Meus agendamentos</h2>
           <Link className="button primary" to={`/${tenant.slug}/book`}>Novo agendamento</Link></div>
         {appointments.length===0?<p>Nenhum horário associado à sua conta. Use o link acima para fazer uma reserva autenticada.</p>:
