@@ -1,6 +1,6 @@
 import { assertCommercialChange, evaluate, getLimit, type CommercialState } from "../../src/commercial/entitlements";
 import type { Tenant } from "../../src/domain/types";
-import {getStoredObject,deleteStoredGeneration,listStoredObjects} from "./mediaStorage";
+import {getStoredObject,deleteStoredGeneration,listStoredObjects,summarizeStoragePage} from "./mediaStorage";
 
 interface Env {
   FIREBASE_PROJECT_ID: string;
@@ -1910,6 +1910,7 @@ async function inventoryPortfolio(request:Request,env:Env):Promise<Response>{
   }));
   return json(env,{
     tenantId,pageCount:objects.length,pageBytes:objects.reduce((sum,o)=>sum+o.size,0),
+    metrics:summarizeStoragePage(page.objects.filter(item=>item.name.startsWith(prefix))),
     objects,nextPageToken:page.nextPageToken,exhaustive:!page.nextPageToken,
     warning:"Medição somente da página atual de objetos; não representa egress, faturamento ou quota global.",
   });
