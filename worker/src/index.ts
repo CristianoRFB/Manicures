@@ -1,5 +1,6 @@
 import { assertCommercialChange, evaluate, getLimit, type CommercialState } from "../../src/commercial/entitlements";
 import type { Tenant } from "../../src/domain/types";
+import {getStoredObject,deleteStoredGeneration,listStoredObjects} from "./mediaStorage";
 
 interface Env {
   FIREBASE_PROJECT_ID: string;
@@ -9,6 +10,9 @@ interface Env {
   FIREBASE_AUTH_PROJECT_ID?: string;
   FIRESTORE_EMULATOR_HOST?: string;
   FIREBASE_AUTH_EMULATOR_HOST?: string;
+  FIREBASE_STORAGE_BUCKET?: string;
+  FIREBASE_STORAGE_EMULATOR_HOST?: string;
+  MEDIA_DELETION_ENABLED?: string;
 }
 
 type FireValue = { stringValue?: string; integerValue?: string; booleanValue?: boolean; mapValue?: { fields: Record<string, FireValue> }; arrayValue?: { values: FireValue[] } };
@@ -44,12 +48,12 @@ function pemToArrayBuffer(pem: string): ArrayBuffer {
   return bytes.buffer;
 }
 
-async function serviceAccessToken(env: Env): Promise<string> {
+async function serviceAccessToken(env: Env, scope="https://www.googleapis.com/auth/datastore"): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = b64url(JSON.stringify({
     iss: env.FIREBASE_CLIENT_EMAIL,
-    scope: "https://www.googleapis.com/auth/datastore",
+    scope,
     aud: "https://oauth2.googleapis.com/token",
     iat: now,
     exp: now + 3600,
@@ -1762,6 +1766,134 @@ async function reviewPortfolioRemoval(request:Request,env:Env):Promise<Response>
   return json(env,{ok:true,requestId,status:next,storageDeleted:false});
 }
 
+
+/** Physical deletion is disabled by default; it requires independent explicit opt-in,
+ * two-step approval, a precise Storage generation, and a privileged actor.
+ */
+async function inventoryPortfolio(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const pageToken=typeof data.pageToken==="string"?data.pageToken:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId)||pageToken.length>1200)
+    return json(env,{error:"Inventário inválido."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||actor.actorRole!=="platform_owner")
+    return json(env,{error:"Somente Platform Owner pode inventariar objetos."},403);
+  if(!await getDocument(env,token,`tenants/${tenantId}`))
+    return json(env,{error:"Tenant inexistente."},404);
+  const mediaToken=env.FIREBASE_STORAGE_EMULATOR_HOST?""
+    :await serviceAccessToken(env,"https://www.googleapis.com/auth/devstorage.read_only");
+  const prefix=`tenants/${tenantId}/public/portfolio/`;
+  const page=await listStoredObjects(env,mediaToken,prefix,pageToken||undefined);
+  const objects=page.objects.filter(item=>item.name.startsWith(prefix)).map(item=>({
+    path:item.name,generation:item.generation,size:item.size,
+    mediaClass:item.metadata.mediaClass??"UNKNOWN_LEGACY",
+    contentType:item.contentType,
+  }));
+  return json(env,{
+    tenantId,pageCount:objects.length,pageBytes:objects.reduce((sum,o)=>sum+o.size,0),
+    objects,nextPageToken:page.nextPageToken,exhaustive:!page.nextPageToken,
+    warning:"Medição somente da página atual de objetos; não representa egress, faturamento ou quota global.",
+  });
+}
+async function commitMediaState(env:Env,token:string,tenantId:string,requestId:string,
+  record:FireDoc,updates:Record<string,unknown>,action:string,actorId:string,
+  reason:string):Promise<boolean>{
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const writes=[
+    {update:{name:docName(env,`tenants/${tenantId}/mediaRemovalRequests/${requestId}`),
+      fields:fields(updates)},
+      updateMask:{fieldPaths:Object.keys(updates)},currentDocument:{updateTime:record.updateTime}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId,actorRole:"platform_owner",action,resourceType:"mediaRemovalRequest",
+        resourceId:requestId,reason,createdAt:now,
+        before:{status:str(record,"status")},after:{status:String(updates.status)}})},
+      currentDocument:{exists:false}},
+  ];
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    if([409,412].includes(response.status))return false;
+    const body=await response.text();
+    if(/FAILED_PRECONDITION|ABORTED/.test(body))return false;
+    throw new Error(`Storage ledger commit HTTP ${response.status}`);
+  }
+  return true;
+}
+async function executeApprovedMediaDeletion(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const requestId=typeof data.requestId==="string"?data.requestId:"";
+  const expectedGeneration=typeof data.expectedGeneration==="string"?data.expectedGeneration:"";
+  const confirmation=data.confirmation;
+  const reason=typeof data.reason==="string"?data.reason.trim():"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId)||!/^[0-9a-f-]{36}$/.test(requestId)||
+    !/^[1-9]\d{0,24}$/.test(expectedGeneration)||
+    confirmation!=="REMOVER_MIDIA_APROVADA"||reason.length<10||reason.length>500)
+    return json(env,{error:"Confirmação, geração ou justificativa inválidas."},400);
+  if(env.MEDIA_DELETION_ENABLED!=="true")
+    return json(env,{error:"Exclusão física desabilitada neste ambiente."},503);
+  if(!env.FIREBASE_STORAGE_BUCKET)
+    return json(env,{error:"Storage bucket não configurado para exclusão."},503);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||actor.actorRole!=="platform_owner")
+    return json(env,{error:"Somente Platform Owner pode excluir mídia aprovada."},403);
+  const path=`tenants/${tenantId}/mediaRemovalRequests/${requestId}`;
+  const record=await getDocument(env,token,path);
+  if(!record||!record.updateTime||str(record,"tenantId")!==tenantId||
+    !validPortfolioObject(tenantId,str(record,"objectPath")))
+    return json(env,{error:"Solicitação inválida."},409);
+  const objectPath=str(record,"objectPath"),status=str(record,"status");
+  if(!["approved_pending_manual_removal","deletion_in_progress"].includes(status))
+    return json(env,{error:"Solicitação não aprovada ou já encerrada."},409);
+  if(status==="deletion_in_progress" && str(record,"storageGeneration")!==expectedGeneration)
+    return json(env,{error:"Geração de remoção em andamento não corresponde."},409);
+  const mediaToken=env.FIREBASE_STORAGE_EMULATOR_HOST?""
+    :await serviceAccessToken(env,"https://www.googleapis.com/auth/devstorage.read_write");
+  const current=await getStoredObject(env,mediaToken,objectPath);
+  if(status==="approved_pending_manual_removal"){
+    if(!current)return json(env,{error:"Objeto não encontrado antes da exclusão; revisão manual necessária."},409);
+    if(current.name!==objectPath || current.generation!==expectedGeneration)
+      return json(env,{error:"Objeto mudou de geração; não será removido."},409);
+    // Unknown legacy media require separate explicit migration, NEVER automatic deletion.
+    if(current.metadata.mediaClass!=="PERSISTENT_BUSINESS"||
+      current.metadata.metadataPolicy!=="reencoded_no_exif")
+      return json(env,{error:"Metadados não comprovam mídia do novo portfólio; revisão de legado necessária."},409);
+    const now=new Date().toISOString();
+    const locked=await commitMediaState(env,token,tenantId,requestId,record,{
+      status:"deletion_in_progress",storageGeneration:expectedGeneration,
+      storageSizeBytes:current.size,storageContentType:current.contentType,
+      deletionStartedAt:now,executionActorId:actor.actorId,
+    },"media.deletion_started",actor.actorId,reason);
+    if(!locked)return json(env,{error:"Outro operador iniciou a execução. Recarregue."},409);
+  } else if(current&&current.generation!==expectedGeneration) {
+    return json(env,{error:"Geração alterada durante a remoção; abortado."},409);
+  }
+  // If a prior attempt already deleted the exact object and crashed before ledger
+  // completion, this confirms absence in the provider before finalizing.
+  if(current){
+    const deleted=await deleteStoredGeneration(env,mediaToken,objectPath,expectedGeneration);
+    if(deleted==="conflict")return json(env,{error:"Geração não corresponde; exclusão não executada."},409);
+  }
+  const after=await getStoredObject(env,mediaToken,objectPath);
+  if(after)return json(env,{error:"Storage ainda contém o objeto. Estado pendente, sem confirmação de exclusão."},502);
+  const fresh=await getDocument(env,token,path);
+  if(!fresh||!fresh.updateTime||str(fresh,"status")!=="deletion_in_progress"||
+    str(fresh,"storageGeneration")!==expectedGeneration)
+    return json(env,{error:"Ledger alterado durante remoção; exige reconciliação."},409);
+  const now=new Date().toISOString();
+  const completed=await commitMediaState(env,token,tenantId,requestId,fresh,{
+    status:"deleted_verified",deletedAt:now,storageVerifiedAbsentAt:now,
+  },"media.deletion_verified",actor.actorId,reason);
+  if(!completed)return json(env,{error:"Objeto ausente mas ledger não finalizou. Reexecute para conciliar."},409);
+  return json(env,{ok:true,status:"deleted_verified",storageDeleted:true,
+    requestId,storageGeneration:expectedGeneration,verifiedAt:now,
+    warning:"Ausência no Storage verificada; caches externos e cópias podem ter retenção independente."});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1814,6 +1946,14 @@ export default {
     if(request.method==="POST" && url.pathname==="/api/media/removal/list"){
       try{return await listPortfolioRemovals(request,env);}
       catch(error){console.error("Media removal list failed",error);return json(env,{error:"Falha ao consultar solicitações."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/platform/media/inventory"){
+      try{return await inventoryPortfolio(request,env);}
+      catch(error){console.error("Media inventory failed",error);return json(env,{error:"Falha ao inventariar mídia."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/platform/media/removal/execute"){
+      try{return await executeApprovedMediaDeletion(request,env);}
+      catch(error){console.error("Media deletion failed",error);return json(env,{error:"Falha ao executar exclusão; verifique estado antes de repetir."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/platform/media/removal/review"){
       try{return await reviewPortfolioRemoval(request,env);}
