@@ -28,6 +28,9 @@ export function PlatformPage() {
   const [adminSaving, setAdminSaving] = useState(false);
   const [adminResult, setAdminResult] = useState("");
   const [adminError, setAdminError] = useState("");
+  const [reconcileReason,setReconcileReason]=useState("");
+  const [reconcileWorking,setReconcileWorking]=useState(false);
+  const [reconcileMessage,setReconcileMessage]=useState("");
 
   async function reload() {
     const list = await repository.listTenants();
@@ -122,6 +125,31 @@ export function PlatformPage() {
     }
   }
 
+  async function reconcileUsage(event:React.FormEvent){
+    event.preventDefault();
+    if(!user||!selected||reconcileWorking)return;
+    setReconcileWorking(true);setReconcileMessage("");
+    try{
+      const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+      if(!base)throw new Error("Worker não configurado.");
+      const response=await fetch(`${base.replace(/\/$/,"")}/api/platform/usage/reconcile`,{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await user.getIdToken()}`},
+        body:JSON.stringify({tenantId:selected.id,reason:reconcileReason.trim()}),
+      });
+      const result=await response.json() as {
+        error?:string;before?:{professionalsActive:number|null;tenantAdminsAdditional:number|null};
+        after?:{professionalsActive:number;tenantAdminsAdditional:number};
+      };
+      if(!response.ok)throw new Error(result.error??"Falha na conferência.");
+      setReconcileMessage(`Contadores conferidos: profissionais ${result.before?.professionalsActive??"legado"} → ${result.after?.professionalsActive};
+        admins ${result.before?.tenantAdminsAdditional??"legado"} → ${result.after?.tenantAdminsAdditional}.
+        Dados da equipe preservados; evento auditado.`);
+      setReconcileReason("");
+    }catch(err){setReconcileMessage(err instanceof Error?err.message:"Falha de rede.");}
+    finally{setReconcileWorking(false);}
+  }
+
   if (loading) return <section className="page">Validando sessão…</section>;
   if (!user) return <LoginPanel title="Administração da plataforma" />;
   if (authorized === null) return <section className="page">Validando Platform Owner…</section>;
@@ -137,6 +165,21 @@ export function PlatformPage() {
         <Link to={`/app/${tenant.slug}`}>Abrir tenant</Link>
       </article>)}
     </div>
+    <section aria-labelledby="reconcile-heading">
+      <h2 id="reconcile-heading">Reconciliar contadores de equipe</h2>
+      <p>Somente Platform Owner. Reconta profissionais e administradores com base nos documentos atuais, mantendo todos os dados e os planos. Use apenas em divergências confirmadas.</p>
+      <form className="form narrow" onSubmit={event=>void reconcileUsage(event)}>
+        <p>Tenant selecionado: <strong>{selected?.name??"Nenhum"}</strong></p>
+        <label>Justificativa (mínimo 10 caracteres)
+          <input required minLength={10} maxLength={300} value={reconcileReason}
+            onChange={event=>setReconcileReason(event.target.value)}/>
+        </label>
+        <button className="button" type="submit" disabled={!selected||reconcileWorking}>
+          {reconcileWorking?"Conferindo…":"Reconciliar com auditoria"}
+        </button>
+        {reconcileMessage&&<p role="status">{reconcileMessage}</p>}
+      </form>
+    </section>
     <section aria-labelledby="plan-admin-heading">
       <h2 id="plan-admin-heading">Atribuição manual de plano</h2>
       <p>Somente Platform Owner. Alterações exigem justificativa e são auditadas atomicamente pelo Worker.</p>
