@@ -48,15 +48,15 @@ service firebase.storage {
     // Never delete automatically; client cannot delete until a trusted lifecycle exists.
     match /tenants/{tenantId}/public/{allPaths=**} {
       allow read: if tenantActive(tenantId) || platformOwner();
-      allow create, update: if uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
-      allow delete: if false;
+      allow create: if uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
+      allow update, delete: if false;
     }
 
     // Files private to tenant staff; never readable by a generic active customer.
     match /tenants/{tenantId}/private/{allPaths=**} {
       allow read: if tenantStaff(tenantId) || platformOwner();
-      allow create, update: if uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
-      allow delete: if false;
+      allow create: if uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
+      allow update, delete: if false;
     }
 
     // Per-professional space. Other professionals and customers may not read it.
@@ -64,11 +64,11 @@ service firebase.storage {
       allow read: if tenantStaff(tenantId) || platformOwner()
         || (member(tenantId) && role(tenantId) == "professional"
           && memberProfessionalId(tenantId) == professionalId);
-      allow create, update: if uploadsAllowed(tenantId) && imageUpload()
+      allow create: if uploadsAllowed(tenantId) && imageUpload()
         && (tenantStaff(tenantId) || platformOwner()
           || (member(tenantId) && role(tenantId) == "professional"
             && memberProfessionalId(tenantId) == professionalId));
-      allow delete: if false;
+      allow update, delete: if false;
     }
 
     // Per-customer private files, not visible to unrelated customers/professionals.
@@ -76,11 +76,11 @@ service firebase.storage {
       allow read: if tenantStaff(tenantId) || platformOwner()
         || (member(tenantId) && role(tenantId) == "customer"
           && memberCustomerId(tenantId) == customerId);
-      allow create, update: if uploadsAllowed(tenantId) && imageUpload()
+      allow create: if uploadsAllowed(tenantId) && imageUpload()
         && (tenantStaff(tenantId) || platformOwner()
           || (member(tenantId) && role(tenantId) == "customer"
             && memberCustomerId(tenantId) == customerId));
-      allow delete: if false;
+      allow update, delete: if false;
     }
   }
 }
