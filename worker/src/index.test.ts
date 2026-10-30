@@ -292,6 +292,29 @@ describe("Trusted commercial and professional writes",()=>{
     const usage=(await getFirestore(adminApp).doc("tenants/a/usage/staff").get()).data();
     expect(usage?.tenantAdminsAdditional).toBeUndefined();
   });
+  it("reconciliação restaura contador legado e audita sem alterar membership",async()=>{
+    const db=getFirestore(adminApp);
+    await db.doc("tenants/a/usage/staff").set({professionalsActive:99,tenantAdminsAdditional:99});
+    await db.doc("memberships/a_existing-admin").set({
+      tenantId:"a",userId:"existing-admin",role:"tenant_admin",status:"active",
+    });
+    const request=async(uid:string,tenantId="a")=>worker.fetch(new Request(
+      "http://worker.local/api/platform/usage/reconcile",{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await signedToken(uid)}`},
+        body:JSON.stringify({tenantId,reason:"Recálculo por divergência verificada"}),
+      }),env());
+    expect((await request("ownerA")).status).toBe(403);
+    expect((await request("platform")).status).toBe(200);
+    const usage=(await db.doc("tenants/a/usage/staff").get()).data();
+    expect(usage?.professionalsActive).toBe(1);
+    expect(usage?.tenantAdminsAdditional).toBe(1);
+    expect((await db.doc("memberships/a_existing-admin").get()).data()?.status).toBe("active");
+    const logs=await db.collection("tenants/a/auditLogs").get();
+    expect(logs.docs.some(x=>x.data().action==="usage.staff_reconcile")).toBe(true);
+    const b=await db.doc("tenants/b/usage/staff").get();
+    expect(b.exists).toBe(false);
+  });
   it("Pro: limita a dois administradores adicionais, com auditoria",async()=>{
     expect((await manageAdmin("a","platform","admin1")).status).toBe(200);
     expect((await manageAdmin("a","platform","admin2")).status).toBe(200);
