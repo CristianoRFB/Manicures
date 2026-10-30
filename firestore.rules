@@ -102,6 +102,12 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      match /invitations/{invitationId} {
+        // Invitation secrets/email and staff role assignment are Worker-only.
+        // Even tenant owner reads them only through controlled API workflows.
+        allow read, create, update, delete: if false;
+      }
+
       match /auditLogs/{logId} {
         allow read: if tenantRole(tenantId, ["tenant_owner"]) || isPlatformOwner();
         allow create: if isPlatformOwner()
