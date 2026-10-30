@@ -1445,7 +1445,13 @@ async function redeemStaffInvitation(request:Request,env:Env):Promise<Response>{
     str(invitation,"status")!=="pending" || int(invitation,"expiresAtEpochMs")<=Date.now() ||
     str(invitation,"email")!==identity.email)
     return json(env,{error:"Convite inválido, expirado, utilizado ou destinado a outro e-mail."},403);
-  if(existing)return json(env,{error:"A conta já possui um vínculo neste studio. Solicite suporte ao proprietário."},409);
+  // A role transition is allowed only by a fresh invitation + verified e-mail
+  // accepted by the account holder. Tenant owner roles are NEVER transferable.
+  if(existing && (str(existing,"tenantId")!==tenantId ||
+    str(existing,"userId")!==identity.uid || !existing.updateTime ||
+    !["customer","professional","tenant_admin"].includes(str(existing,"role")) ||
+    !["active","disabled"].includes(str(existing,"status"))))
+    return json(env,{error:"Este vínculo não pode ser convertido por convite."},409);
   const role=str(invitation,"role");
   if(!["tenant_admin","professional"].includes(role))return json(env,{error:"Papel inválido."},400);
   const professionalId=str(invitation,"professionalId");
@@ -1455,36 +1461,47 @@ async function redeemStaffInvitation(request:Request,env:Env):Promise<Response>{
       return json(env,{error:"Vínculo profissional indisponível."},409);
   }
   const counterPath=`tenants/${tenantId}/usage/staff`;
-  const counter=role==="tenant_admin"?await getDocument(env,token,counterPath):null;
+  const wasAdmin=existing && str(existing,"role")==="tenant_admin" && str(existing,"status")==="active";
+  const willBeAdmin=role==="tenant_admin";
+  const adminDelta=Number(willBeAdmin)-Number(Boolean(wasAdmin));
+  const counter=adminDelta!==0?await getDocument(env,token,counterPath):null;
   let count=0;
-  if(role==="tenant_admin"){
+  if(adminDelta!==0){
     count=counter&&counter.fields?.tenantAdminsAdditional?.integerValue!==undefined
       ?int(counter,"tenantAdminsAdditional")
       :(await listDocuments(env,token,"memberships")).filter(m=>str(m,"tenantId")===tenantId
         &&str(m,"role")==="tenant_admin"&&str(m,"status")==="active").length;
     const max=getLimit(asTenant(tenant,tenantId),"tenant_admins");
-    if(!Number.isSafeInteger(count)||count<0||max===0||(max!==null&&count+1>max))
+    if(!Number.isSafeInteger(count)||count<0||count+adminDelta<0||
+      (adminDelta>0 && (max===0||(max!==null&&count+adminDelta>max))))
       return json(env,{error:"Quota de administradores atingida ou inconsistente."},409);
   }
   const now=new Date().toISOString(),auditId=crypto.randomUUID();
   const member={tenantId,userId:identity.uid,role,status:"active",
-    ...(role==="professional"?{professionalId}:{}),createdAt:now};
+    ...(role==="professional"?{professionalId}:{}),
+    ...(existing?{updatedAt:now}:{createdAt:now,updatedAt:now})};
   const writes:Array<Record<string,unknown>>=[
     {update:{name:docName(env,`memberships/${tenantId}_${identity.uid}`),
-      fields:fields(member)},currentDocument:{exists:false}},
+      fields:fields(member)},
+      ...(existing?{updateMask:{fieldPaths:["tenantId","userId","role","status",
+        "professionalId","customerId","updatedAt"]}}:{}),
+      currentDocument:existing?.updateTime?{updateTime:existing.updateTime}:{exists:false}},
     {update:{name:docName(env,`tenants/${tenantId}/invitations/${invitationId}`),
       fields:fields({status:"accepted",acceptedAt:now,acceptedBy:identity.uid})},
       updateMask:{fieldPaths:["status","acceptedAt","acceptedBy"]},
       currentDocument:{updateTime:invitation.updateTime}},
   ];
-  if(role==="tenant_admin")
+  if(adminDelta!==0)
     writes.push({update:{name:docName(env,counterPath),
-      fields:fields({tenantAdminsAdditional:count+1,updatedAt:now})},
+      fields:fields({tenantAdminsAdditional:count+adminDelta,updatedAt:now})},
       updateMask:{fieldPaths:["tenantAdminsAdditional","updatedAt"]},
       currentDocument:counter?.updateTime?{updateTime:counter.updateTime}:{exists:false}});
   writes.push({update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
-    fields:fields({tenantId,actorId:identity.uid,actorRole:role,action:"membership.invite_accept",
-      resourceType:"invitation",resourceId:invitationId,createdAt:now})},currentDocument:{exists:false}});
+    fields:fields({tenantId,actorId:identity.uid,actorRole:role,action:existing?"membership.invite_transition":"membership.invite_accept",
+      resourceType:"invitation",resourceId:invitationId,createdAt:now,
+      before:existing?{role:str(existing,"role"),status:str(existing,"status"),
+        professionalId:str(existing,"professionalId"),customerId:str(existing,"customerId")}:{},
+      after:{role,status:"active",professionalId:role==="professional"?professionalId:""},adminDelta})},currentDocument:{exists:false}});
   const headers:Record<string,string>={"content-type":"application/json"};
   if(token)headers.authorization=`Bearer ${token}`;
   const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
@@ -1495,7 +1512,7 @@ async function redeemStaffInvitation(request:Request,env:Env):Promise<Response>{
     console.error("Invite acceptance failed",response.status,detail.slice(0,160));
     return json(env,{error:"Não foi possível aceitar convite."},500);
   }
-  return json(env,{ok:true,role,tenantId});
+  return json(env,{ok:true,role,tenantId,transitioned:Boolean(existing)});
 }
 async function listStaffInvitations(request:Request,env:Env):Promise<Response>{
   const data=await request.json() as Record<string,unknown>;
