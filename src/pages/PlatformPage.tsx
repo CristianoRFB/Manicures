@@ -4,6 +4,7 @@ import { repository } from "../data/repository";
 import type { Tenant } from "../domain/types";
 import { useAuth } from "../auth/AuthProvider";
 import { LoginPanel } from "../components/LoginPanel";
+import {parseManualLimit} from "../commercial/manualLimit";
 import { IMPLEMENTED_FEATURES, PLAN_CATALOG, PLAN_ORDER, type FeatureKey, type PlanId } from "../commercial/planCatalog";
 
 type RemovalRequest={requestId:string;objectPath:string;status:string;reason:string;createdAt:string;reviewedAt?:string;reviewReason?:string;storageGeneration?:string;deletedAt?:string};
@@ -104,9 +105,9 @@ export function PlatformPage() {
       if(overrideMode!=="inherit") entitlements[overrideFeature] = overrideMode==="allow";
       const limits = {...(selected.commercial?.limitOverrides ?? {})};
       const parseOverride=(value:string,key:"professionals_active"|"tenant_admins")=>{
-        if(!value.trim()) {delete limits[key]; return;}
-        if(!/^[0-9]{1,4}$/.test(value.trim())) throw new Error("Limite inválido: use inteiro de 0 a 9999.");
-        limits[key] = Number(value.trim());
+        const parsed=parseManualLimit(value);
+        if(parsed===undefined)delete limits[key];
+        else limits[key]=parsed;
       };
       parseOverride(professionalCap,"professionals_active");
       parseOverride(adminCap,"tenant_admins");
