@@ -1496,6 +1496,22 @@ async function redeemStaffInvitation(request:Request,env:Env):Promise<Response>{
   }
   return json(env,{ok:true,role,tenantId});
 }
+async function listStaffInvitations(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId))return json(env,{error:"Tenant inválido."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||!["tenant_owner","platform_owner"].includes(actor.actorRole))
+    return json(env,{error:"Sem permissão para consultar convites."},403);
+  const records=await listDocuments(env,token,`tenants/${tenantId}/invitations`);
+  const invitations=records.slice(-250).map(doc=>({
+    invitationId:doc.name.split("/").pop(),email:str(doc,"email"),role:str(doc,"role"),
+    professionalId:str(doc,"professionalId"),status:str(doc,"status"),
+    expiresAtEpochMs:int(doc,"expiresAtEpochMs"),createdAt:str(doc,"createdAt"),
+  })).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+  return json(env,{invitations});
+}
 async function revokeStaffInvitation(request:Request,env:Env):Promise<Response>{
   const data=await request.json() as Record<string,unknown>;
   const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
@@ -1532,6 +1548,10 @@ export default {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
     if (request.method === "GET" && url.pathname === "/health") return json(env, { ok: true, service: "saas-manicure-booking-api" });
+    if(request.method==="POST" && url.pathname==="/api/admin/invitations/list"){
+      try{return await listStaffInvitations(request,env);}
+      catch(error){console.error("Invite list failed",error);return json(env,{error:"Não foi possível consultar convites."},500);}
+    }
     if(request.method==="POST" && url.pathname==="/api/admin/invitations/create"){
       try{return await issueStaffInvitation(request,env);}
       catch(error){console.error("Invite create failed",error);return json(env,{error:"Falha ao emitir convite."},500);}
