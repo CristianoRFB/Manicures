@@ -18,8 +18,8 @@
     "emulators:seed": "node scripts/seed-emulator.mjs",
     "worker:check": "tsc -p worker/tsconfig.json --pretty false",
     "check": "npm run typecheck && npm test && npm run worker:check && npm run test:emulator && npm run docs:check",
-    "test:worker": "firebase --project manicure-demo emulators:exec --only auth,firestore,storage \"vitest run worker/src/index.test.ts\"",
-    "test:emulator": "firebase --project manicure-demo emulators:exec --only auth,firestore,storage \"vitest run src/test/firestore.rules.test.ts src/test/storage.rules.test.ts worker/src/index.test.ts\"",
+    "test:worker": "firebase --project manicure-demo emulators:exec --only auth,firestore,storage \"vitest run worker/src/index.test.ts worker/src/mediaStorage.test.ts\"",
+    "test:emulator": "firebase --project manicure-demo emulators:exec --only auth,firestore,storage \"vitest run src/test/firestore.rules.test.ts src/test/storage.rules.test.ts worker/src/index.test.ts worker/src/mediaStorage.test.ts\"",
     "test:pre-pc": "npm run typecheck && npm test && npm run worker:check && npm run test:emulator && npm run docs:check && npm run build"
   },
   "dependencies": {
