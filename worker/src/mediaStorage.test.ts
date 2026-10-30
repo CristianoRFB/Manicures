@@ -1,5 +1,5 @@
 import {describe,expect,it,vi} from "vitest";
-import {deleteStoredGeneration,getStoredObject,listStoredObjects,summarizeStoragePage} from "./mediaStorage";
+import {deleteStoredGeneration,getStoredObject,listStoredObjects,summarizeStoragePage,scanStoragePrefix} from "./mediaStorage";
 const env={
   FIREBASE_PROJECT_ID:"manicure-worker-test",
   FIREBASE_STORAGE_BUCKET:"manicure-worker-test.appspot.com",
@@ -53,6 +53,37 @@ describe("trusted Storage boundary",()=>{
       persistentCount:1,persistentBytes:4096,
       legacyCount:1,legacyBytes:1024,otherCount:1,otherBytes:512});
     expect(()=>summarizeStoragePage([{name:"bad",generation:"1",size:-1,contentType:"",metadata:{}}])).toThrow();
+  });
+  it("scans bounded pages with cursor and preserves per-class byte totals",async()=>{
+    const path="tenants/a/public/portfolio/";
+    const calls:string[]=[];
+    const first={name:path+"a.webp",generation:"1",size:"2048",
+      metadata:{mediaClass:"PERSISTENT_BUSINESS",metadataPolicy:"reencoded_no_exif"},contentType:"image/webp"};
+    const second={name:path+"legacy.jpg",generation:"2",size:"1024",metadata:{},contentType:"image/jpeg"};
+    const transport=(async(input:RequestInfo|URL)=>{
+      const url=new URL(String(input));calls.push(url.toString());
+      return new Response(JSON.stringify(url.searchParams.has("pageToken")?
+        {items:[second]}:{items:[first],nextPageToken:"more"}),{status:200});
+    }) as typeof fetch;
+    const one=await scanStoragePrefix(env,"",path,undefined,1,transport);
+    expect(one.pagesScanned).toBe(1);
+    expect(one.complete).toBe(false);
+    expect(one.metrics.totalBytes).toBe(2048);
+    const resumed=await scanStoragePrefix(env,"",path,one.nextPageToken!,2,transport);
+    expect(resumed.complete).toBe(true);
+    expect(resumed.metrics.legacyBytes).toBe(1024);
+    expect(calls).toHaveLength(2);
+  });
+  it("rejects prefix crossing, cursor loops, oversized and invalid page budgets",async()=>{
+    const path="tenants/a/public/portfolio/";
+    const outsider=(async()=>new Response(JSON.stringify({items:[
+      {name:"tenants/b/public/portfolio/secret.webp",generation:"1",size:"10"},
+    ]}),{status:200})) as typeof fetch;
+    await expect(scanStoragePrefix(env,"","tenants/a/appointments/",undefined,1,outsider)).rejects.toThrow();
+    await expect(scanStoragePrefix(env,"",path,undefined,1,outsider)).rejects.toThrow("fora do tenant");
+    await expect(scanStoragePrefix(env,"",path,undefined,21,outsider)).rejects.toThrow();
+    const loop=(async()=>new Response(JSON.stringify({items:[],nextPageToken:"repeat"}),{status:200})) as typeof fetch;
+    await expect(scanStoragePrefix(env,"",path,undefined,3,loop)).rejects.toThrow("cíclico");
   });
   it("rejects corrupt Storage generation or missing object size",async()=>{
     const transport=vi.fn(async (_input:RequestInfo|URL,_init?:RequestInit)=>new Response(JSON.stringify({
