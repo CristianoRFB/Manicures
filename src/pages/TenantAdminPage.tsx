@@ -8,6 +8,7 @@ import { getLimit, evaluate } from "../commercial/entitlements";
 import { LoginPanel } from "../components/LoginPanel";
 import { StudioPortfolio } from "../components/StudioPortfolio";
 import { StaffInvitations } from "../components/StaffInvitations";
+import {GuestHistoryReviews} from "../components/GuestHistoryReviews";
 import { subscriptionNotice } from "../commercial/subscriptionNotice";
 import { getProtectedAvailability } from "../data/bookingApi";
 import {parseBRLToCents} from "../domain/currency";
@@ -503,6 +504,7 @@ export function TenantAdminPage() {
         <button type="submit" className="button primary" disabled={working}>Salvar marca e contatos</button>
       </form>}
       {(platformOwner||membership?.role==="tenant_owner")&&user&&<StaffInvitations tenant={tenant} user={user} professionals={professionals}/>}
+      {user&&<GuestHistoryReviews tenant={tenant} user={user}/>}
       <h2>Serviços</h2>
       <div className="grid cards">
         {services.map(service=><article className="card" key={service.id}>
