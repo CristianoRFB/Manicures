@@ -3,6 +3,10 @@ import { deleteApp, initializeApp, type App } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 import worker from "./index";
+import {initializeTestEnvironment} from "@firebase/rules-unit-testing";
+import {ref,uploadBytes,getMetadata} from "firebase/storage";
+import fs from "node:fs";
+
 
 const projectId = "manicure-worker-test";
 let adminApp: App;
@@ -462,6 +466,47 @@ describe("Trusted commercial and professional writes",()=>{
       const b=await getFirestore(adminApp).collection("tenants/b/mediaRemovalRequests").get();
       expect(b.empty).toBe(true);
     }finally{vi.stubGlobal("fetch",previousFetch);}
+  });
+  it("Storage Emulator real: remove somente objeto com geração aprovada e confirma ausência",async()=>{
+    const path="tenants/a/public/portfolio/real-emulator.webp";
+    const testEnv=await initializeTestEnvironment({
+      projectId,
+      firestore:{rules:fs.readFileSync("firestore.rules","utf8")},
+      storage:{rules:fs.readFileSync("storage.rules","utf8")},
+    });
+    try{
+      const ownerStorage=testEnv.authenticatedContext("ownerA").storage("manicure-worker-test.appspot.com");
+      const object=ref(ownerStorage,path);
+      await uploadBytes(object,new Uint8Array([82,73,70,70,4,0,0,0]),{
+        contentType:"image/webp",
+        customMetadata:{mediaClass:"PERSISTENT_BUSINESS",metadataPolicy:"reencoded_no_exif"},
+      });
+      const objectMeta=await getMetadata(object);
+      expect(objectMeta.generation).toBeTruthy();
+      const created=await mediaRemoval("/api/media/removal/request","ownerA",{
+        tenantId:"a",objectPath:path,reason:"Retirada de arquivo fictício para validação",
+      });
+      expect(created.status).toBe(201);
+      const requestId=(await created.json() as {requestId:string}).requestId;
+      expect((await mediaRemoval("/api/platform/media/removal/review","platform",{
+        tenantId:"a",requestId,decision:"approve",
+        reviewReason:"Aprovação de exclusão em ambiente sintético",
+      })).status).toBe(200);
+      const result=await worker.fetch(new Request("http://worker.local/api/platform/media/removal/execute",{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await signedToken("platform")}`},
+        body:JSON.stringify({tenantId:"a",requestId,
+          expectedGeneration:objectMeta.generation,
+          confirmation:"REMOVER_MIDIA_APROVADA",
+          reason:"Excluir objeto sintético após verificação de geração"}),
+      }),{...env(),FIREBASE_STORAGE_EMULATOR_HOST:"127.0.0.1:9199",
+        FIREBASE_STORAGE_BUCKET:"manicure-worker-test.appspot.com",
+        MEDIA_DELETION_ENABLED:"true"});
+      expect(result.status).toBe(200);
+      expect((await result.json() as {storageDeleted:boolean}).storageDeleted).toBe(true);
+      expect((await getFirestore(adminApp).doc(`tenants/a/mediaRemovalRequests/${requestId}`).get()).data()?.status)
+        .toBe("deleted_verified");
+    }finally{await testEnv.cleanup();}
   });
   it("upload freeze é reservado ao Platform Owner, tenant-scoped e auditado",async()=>{
     const request=async(uid:string,tenantId:string,paused:boolean)=>worker.fetch(new Request(
