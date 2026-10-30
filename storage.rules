@@ -48,14 +48,14 @@ service firebase.storage {
     // Never delete automatically; client cannot delete until a trusted lifecycle exists.
     match /tenants/{tenantId}/public/{allPaths=**} {
       allow read: if tenantActive(tenantId) || platformOwner();
-      allow create: if uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
+      allow create: if resource == null && uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
       allow update, delete: if false;
     }
 
     // Files private to tenant staff; never readable by a generic active customer.
     match /tenants/{tenantId}/private/{allPaths=**} {
       allow read: if tenantStaff(tenantId) || platformOwner();
-      allow create: if uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
+      allow create: if resource == null && uploadsAllowed(tenantId) && (tenantStaff(tenantId) || platformOwner()) && imageUpload();
       allow update, delete: if false;
     }
 
@@ -64,7 +64,7 @@ service firebase.storage {
       allow read: if tenantStaff(tenantId) || platformOwner()
         || (member(tenantId) && role(tenantId) == "professional"
           && memberProfessionalId(tenantId) == professionalId);
-      allow create: if uploadsAllowed(tenantId) && imageUpload()
+      allow create: if resource == null && uploadsAllowed(tenantId) && imageUpload()
         && (tenantStaff(tenantId) || platformOwner()
           || (member(tenantId) && role(tenantId) == "professional"
             && memberProfessionalId(tenantId) == professionalId));
@@ -76,7 +76,7 @@ service firebase.storage {
       allow read: if tenantStaff(tenantId) || platformOwner()
         || (member(tenantId) && role(tenantId) == "customer"
           && memberCustomerId(tenantId) == customerId);
-      allow create: if uploadsAllowed(tenantId) && imageUpload()
+      allow create: if resource == null && uploadsAllowed(tenantId) && imageUpload()
         && (tenantStaff(tenantId) || platformOwner()
           || (member(tenantId) && role(tenantId) == "customer"
             && memberCustomerId(tenantId) == customerId));
