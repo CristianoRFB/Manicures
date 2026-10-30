@@ -6,6 +6,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { LoginPanel } from "../components/LoginPanel";
 import { IMPLEMENTED_FEATURES, PLAN_CATALOG, PLAN_ORDER, type FeatureKey, type PlanId } from "../commercial/planCatalog";
 
+type RemovalRequest={requestId:string;objectPath:string;status:string;reason:string;createdAt:string;reviewedAt?:string;reviewReason?:string};
 interface Assignment { planId: PlanId | "premium_demo"; status: "active" | "trial" | "past_due" | "suspended" | "cancelled" | "demo"; reason: string; }
 const initial: Assignment = { planId:"essencial", status:"active", reason:"" };
 const money = (cents: number) => new Intl.NumberFormat("pt-BR",{style:"currency",currency:"BRL"}).format(cents/100);
@@ -34,6 +35,10 @@ export function PlatformPage() {
   const [uploadPauseReason,setUploadPauseReason]=useState("");
   const [uploadPauseWorking,setUploadPauseWorking]=useState(false);
   const [uploadPauseMessage,setUploadPauseMessage]=useState("");
+  const [removalRows,setRemovalRows]=useState<RemovalRequest[]>([]);
+  const [removalBusy,setRemovalBusy]=useState(false);
+  const [removalReason,setRemovalReason]=useState("");
+  const [removalMessage,setRemovalMessage]=useState("");
 
   async function reload() {
     const list = await repository.listTenants();
@@ -128,6 +133,38 @@ export function PlatformPage() {
     }
   }
 
+  async function mediaRequest(action:"list"|"review",data:Record<string,unknown>){
+    if(!user||!selected)throw new Error("Selecione um studio.");
+    const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
+    if(!base)throw new Error("Worker não configurado.");
+    const route=action==="list"?"/api/media/removal/list":"/api/platform/media/removal/review";
+    const response=await fetch(`${base.replace(/\/$/,"")}${route}`,{
+      method:"POST",headers:{"content-type":"application/json",
+        authorization:`Bearer ${await user.getIdToken()}`},
+      body:JSON.stringify({tenantId:selected.id,...data}),
+    });
+    const result=await response.json() as {error?:string;requests?:RemovalRequest[]};
+    if(!response.ok)throw new Error(result.error??"Falha ao consultar remoções.");
+    return result;
+  }
+  async function refreshRemovalRequests(){
+    setRemovalBusy(true);setRemovalMessage("");
+    try{setRemovalRows((await mediaRequest("list",{})).requests??[]);}
+    catch(err){setRemovalMessage(err instanceof Error?err.message:"Falha na consulta.");}
+    finally{setRemovalBusy(false);}
+  }
+  async function reviewRemoval(requestId:string,decision:"approve"|"reject"){
+    if(removalBusy)return;
+    setRemovalBusy(true);setRemovalMessage("");
+    try{
+      await mediaRequest("review",{requestId,decision,reviewReason:removalReason.trim()});
+      const result=await mediaRequest("list",{});
+      setRemovalRows(result.requests??[]);setRemovalReason("");
+      setRemovalMessage("Revisão auditada. Aprovação NÃO executa exclusão física; operação manual continua pendente.");
+    }catch(err){setRemovalMessage(err instanceof Error?err.message:"Falha na revisão.");}
+    finally{setRemovalBusy(false);}
+  }
+
   async function changeUploadPause(paused:boolean){
     if(!user||!selected||uploadPauseWorking)return;
     setUploadPauseWorking(true);setUploadPauseMessage("");
@@ -188,6 +225,31 @@ export function PlatformPage() {
         <Link to={`/app/${tenant.slug}`}>Abrir tenant</Link>
       </article>)}
     </div>
+    <section aria-labelledby="media-review-heading">
+      <h2 id="media-review-heading">Solicitações de retirada de fotos</h2>
+      <p>Fluxo controlado: solicitação pelo studio, revisão do Platform Owner, execução manual de retirada em etapa posterior.
+        Uma aprovação NÃO afirma que a foto já foi excluída do Firebase Storage.</p>
+      <button className="button" type="button" disabled={!selected||removalBusy}
+        onClick={()=>void refreshRemovalRequests()}>{removalBusy?"Consultando…":"Consultar solicitações"}</button>
+      <label>Justificativa da revisão (10–500 caracteres)
+        <textarea rows={2} minLength={10} maxLength={500} value={removalReason}
+          onChange={event=>setRemovalReason(event.target.value)}/>
+      </label>
+      {removalMessage&&<p role="status">{removalMessage}</p>}
+      {removalRows.map(row=><article className="card" key={row.requestId}>
+        <strong>{row.objectPath.split("/").pop()}</strong>
+        <p>Estado: {row.status} · Pedido: {row.createdAt.slice(0,10)}</p>
+        <p>Motivo: {row.reason}</p>
+        {row.status==="pending_review"&&<div className="row">
+          <button className="button primary" type="button"
+            disabled={removalBusy||removalReason.trim().length<10}
+            onClick={()=>void reviewRemoval(row.requestId,"approve")}>Aprovar para retirada manual</button>
+          <button className="button" type="button"
+            disabled={removalBusy||removalReason.trim().length<10}
+            onClick={()=>void reviewRemoval(row.requestId,"reject")}>Rejeitar</button>
+        </div>}
+      </article>)}
+    </section>
     <section aria-labelledby="media-pause-heading">
       <h2 id="media-pause-heading">Controle emergencial de uploads</h2>
       <p>Segurança operacional, não é limite por plano. Pausar bloqueia NOVOS uploads no Storage de um tenant, preservando arquivos e leituras existentes.</p>
