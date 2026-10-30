@@ -8,6 +8,7 @@ import { getLimit, evaluate } from "../commercial/entitlements";
 import { LoginPanel } from "../components/LoginPanel";
 import { StudioPortfolio } from "../components/StudioPortfolio";
 import { StaffInvitations } from "../components/StaffInvitations";
+import { subscriptionNotice } from "../commercial/subscriptionNotice";
 import { getProtectedAvailability } from "../data/bookingApi";
 import {parseBRLToCents} from "../domain/currency";
 
@@ -466,6 +467,11 @@ export function TenantAdminPage() {
   return (
     <section className="page">
       <div className="row between"><div><div className="badge">{platformOwner ? "PLATFORM OWNER" : membership?.role}</div><h1>{tenant.name}</h1></div><button className="button" onClick={() => void logout()}>Sair</button></div>
+      {(()=>{const notice=subscriptionNotice(tenant);return <div className="callout"
+        role={notice.level==="blocked"?"alert":"status"}>
+        <strong>{notice.level==="blocked"?"Estado comercial exige atenção":"Estado do plano"}</strong>
+        <p>{notice.message}</p>
+      </div>;})()}
       <div className="stats">
         <div className="stat"><strong>{appointments.length}</strong><span>agendamentos</span></div>
         <div className="stat"><strong>{professionals.filter(pro=>pro.active).length}</strong><span>profissionais ativas</span></div>
