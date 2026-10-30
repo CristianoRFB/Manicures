@@ -341,6 +341,25 @@ describe("Trusted commercial and professional writes",()=>{
     expect((await claimInvite("client-convert",id)).status).toBe(409);
     expect((await db.doc("memberships/a_client-convert").get()).data()?.role).toBe("customer");
   });
+  it("upload freeze é reservado ao Platform Owner, tenant-scoped e auditado",async()=>{
+    const request=async(uid:string,tenantId:string,paused:boolean)=>worker.fetch(new Request(
+      "http://worker.local/api/platform/media/pause",{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:`Bearer ${await signedToken(uid)}`},
+        body:JSON.stringify({tenantId,paused,reason:"Incidente de custo de mídia verificado"}),
+      }),env());
+    expect((await request("ownerA","a",true)).status).toBe(403);
+    expect((await request("ownerB","a",true)).status).toBe(403);
+    expect((await request("platform","a",true)).status).toBe(200);
+    const db=getFirestore(adminApp);
+    expect((await db.doc("tenants/a").get()).data()?.mediaUploadsPaused).toBe(true);
+    expect((await db.doc("tenants/b").get()).data()?.mediaUploadsPaused).toBeUndefined();
+    expect((await request("platform","a",true)).status).toBe(200);
+    expect((await request("platform","a",false)).status).toBe(200);
+    expect((await db.doc("tenants/a").get()).data()?.mediaUploadsPaused).toBe(false);
+    const logs=await db.collection("tenants/a/auditLogs").get();
+    expect(logs.docs.filter(x=>x.data().action==="media.upload_pause")).toHaveLength(2);
+  });
   it("reconciliação restaura contador legado e audita sem alterar membership",async()=>{
     const db=getFirestore(adminApp);
     await db.doc("tenants/a/usage/staff").set({professionalsActive:99,tenantAdminsAdditional:99});
