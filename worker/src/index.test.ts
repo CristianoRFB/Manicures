@@ -292,6 +292,55 @@ describe("Trusted commercial and professional writes",()=>{
     const usage=(await getFirestore(adminApp).doc("tenants/a/usage/staff").get()).data();
     expect(usage?.tenantAdminsAdditional).toBeUndefined();
   });
+  it("troca cliente para admin somente mediante convite, mantendo histórico privado e quota",async()=>{
+    const db=getFirestore(adminApp);
+    await db.doc("memberships/a_client-convert").set({
+      tenantId:"a",userId:"client-convert",role:"customer",status:"active",
+      customerId:"client-convert",createdAt:"2026-01-01T00:00:00Z",
+    });
+    const issued=await issueInvite();
+    const id=(await issued.json() as {invitationId:string}).invitationId;
+    expect((await claimInvite("client-convert",id,"a",true,"wrong@example.test")).status).toBe(403);
+    const accepted=await claimInvite("client-convert",id);
+    expect(accepted.status).toBe(200);
+    expect((await accepted.json() as {transitioned:boolean}).transitioned).toBe(true);
+    const member=(await db.doc("memberships/a_client-convert").get()).data();
+    expect(member?.role).toBe("tenant_admin");
+    expect(member?.customerId).toBeUndefined();
+    expect(member?.createdAt).toBe("2026-01-01T00:00:00Z");
+    expect((await db.doc("tenants/a/usage/staff").get()).data()?.tenantAdminsAdditional).toBe(1);
+    const logs=await db.collection("tenants/a/auditLogs").get();
+    expect(logs.docs.some(x=>x.data().action==="membership.invite_transition")).toBe(true);
+  });
+  it("troca admin para profissional e libera quota sem apagar histórico",async()=>{
+    const db=getFirestore(adminApp);
+    await db.doc("memberships/a_oldadmin").set({
+      tenantId:"a",userId:"oldadmin",role:"tenant_admin",status:"active",
+    });
+    await db.doc("tenants/a/usage/staff").set({tenantAdminsAdditional:1,professionalsActive:1});
+    const issued=await issueInvite("ownerA","professional");
+    const id=(await issued.json() as {invitationId:string}).invitationId;
+    expect((await claimInvite("oldadmin",id)).status).toBe(200);
+    const member=(await db.doc("memberships/a_oldadmin").get()).data();
+    expect(member?.role).toBe("professional");
+    expect(member?.professionalId).toBe("p1");
+    expect((await db.doc("tenants/a/usage/staff").get()).data()?.tenantAdminsAdditional).toBe(0);
+  });
+  it("proprietário nunca pode mudar de papel por convite e quota prevalece em conversão",async()=>{
+    const db=getFirestore(adminApp);
+    const professionalInvite=await issueInvite("ownerA","professional");
+    const proId=(await professionalInvite.json() as {invitationId:string}).invitationId;
+    expect((await claimInvite("ownerA",proId)).status).toBe(409);
+    expect((await db.doc("memberships/a_ownerA").get()).data()?.role).toBe("tenant_owner");
+    await db.doc("memberships/a_client-convert").set({
+      tenantId:"a",userId:"client-convert",role:"customer",status:"active",customerId:"client-convert",
+    });
+    const issued=await issueInvite();
+    const id=(await issued.json() as {invitationId:string}).invitationId;
+    await db.doc("tenants/a").update({commercial:{planId:"essencial",subscriptionStatus:"active"}});
+    expect((await claimInvite("client-convert",id)).status).toBe(409);
+    expect((await db.doc("memberships/a_client-convert").get()).data()?.role).toBe("customer");
+  });
   it("reconciliação restaura contador legado e audita sem alterar membership",async()=>{
     const db=getFirestore(adminApp);
     await db.doc("tenants/a/usage/staff").set({professionalsActive:99,tenantAdminsAdditional:99});
