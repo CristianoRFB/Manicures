@@ -310,6 +310,20 @@ describe("Trusted commercial and professional writes",()=>{
     const counter=await getFirestore(adminApp).doc("tenants/a/usage/staff").get();
     expect(counter.data()?.tenantAdminsAdditional).toBe(1);
   });
+  it("bloqueia promoção direta de cliente/profissional para admin sem novo aceite verificado",async()=>{
+    const db=getFirestore(adminApp);
+    await db.doc("memberships/a_client-signed").set({
+      tenantId:"a",userId:"client-signed",role:"customer",status:"active",customerId:"client-signed",
+    });
+    expect((await manageAdmin("a","ownerA","client-signed")).status).toBe(403);
+    expect((await manageAdmin("a","platform","client-signed")).status).toBe(403);
+    await db.doc("memberships/a_pro-signed").set({
+      tenantId:"a",userId:"pro-signed",role:"professional",status:"active",professionalId:"p1",
+    });
+    expect((await manageAdmin("a","ownerA","pro-signed")).status).toBe(403);
+    expect((await db.doc("memberships/a_client-signed").get()).data()?.role).toBe("customer");
+    expect((await db.doc("memberships/a_pro-signed").get()).data()?.role).toBe("professional");
+  });
   it("Essencial não aceita administrador adicional",async()=>{
     await getFirestore(adminApp).doc("tenants/a").update({commercial:{planId:"essencial",subscriptionStatus:"active"}});
     expect((await manageAdmin("a","platform","admin1")).status).toBe(409);
