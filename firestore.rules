@@ -102,6 +102,11 @@ service cloud.firestore {
         allow create, update, delete: if false;
       }
 
+      match /mediaRemovalRequests/{requestId} {
+        // Removal requests contain user privacy reasons and require trusted Worker review.
+        allow read, create, update, delete: if false;
+      }
+
       match /invitations/{invitationId} {
         // Invitation secrets/email and staff role assignment are Worker-only.
         // Even tenant owner reads them only through controlled API workflows.
