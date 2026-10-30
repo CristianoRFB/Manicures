@@ -115,6 +115,21 @@ describe("tenant isolation and RBAC", () => {
     await assertFails(setDoc(doc(db,"tenants/a"),{status:"active",commercial:{planId:"premium",subscriptionStatus:"active"}},{merge:true}));
   });
 
+  it("convites de equipe são documentos privados, editáveis apenas pelo Worker",async()=>{
+    await env.withSecurityRulesDisabled(async ctx=>{
+      await setDoc(doc(ctx.firestore(),"tenants/a/invitations/test"),{
+        tenantId:"a",email:"alvo@example.test",role:"tenant_admin",status:"pending",
+      });
+    });
+    for(const uid of ["ownerA","customerA","proA","ownerB","platform"]){
+      const db=env.authenticatedContext(uid).firestore();
+      await assertFails(getDoc(doc(db,"tenants/a/invitations/test")));
+      await assertFails(setDoc(doc(db,"tenants/a/invitations/new"),{
+        tenantId:"a",email:"forged@example.test",role:"tenant_owner",status:"pending",
+      }));
+    }
+  });
+
   it("cliente público não cria Appointment direto no Firestore", async () => {
     const db = env.unauthenticatedContext().firestore();
     await assertFails(setDoc(doc(db, "tenants/a/appointments/x"), { tenantId:"a", status:"pending" }));

@@ -6,6 +6,7 @@ import { BookingPage } from "../pages/BookingPage";
 import { TenantAdminPage } from "../pages/TenantAdminPage";
 import { ProfessionalPage } from "../pages/ProfessionalPage";
 import { CustomerPage } from "../pages/CustomerPage";
+import { StaffInvitePage } from "../pages/StaffInvitePage";
 import { PlatformPage } from "../pages/PlatformPage";
 import { PricingPage } from "../pages/PricingPage";
 import { NotFoundPage } from "../pages/NotFoundPage";
@@ -20,6 +21,7 @@ export function App() {
         <Route path="/app/:tenantSlug" element={<TenantAdminPage />} />
         <Route path="/professional/:tenantSlug" element={<ProfessionalPage />} />
         <Route path="/customer/:tenantSlug" element={<CustomerPage />} />
+        <Route path="/invite/:tenantSlug" element={<StaffInvitePage />} />
         <Route path="/:tenantSlug/book" element={<BookingPage />} />
         <Route path="/:tenantSlug" element={<TenantPublicPage />} />
         <Route path="*" element={<NotFoundPage />} />

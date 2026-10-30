@@ -7,6 +7,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { getLimit, evaluate } from "../commercial/entitlements";
 import { LoginPanel } from "../components/LoginPanel";
 import { StudioPortfolio } from "../components/StudioPortfolio";
+import { StaffInvitations } from "../components/StaffInvitations";
 import { getProtectedAvailability } from "../data/bookingApi";
 import {parseBRLToCents} from "../domain/currency";
 
@@ -495,6 +496,7 @@ export function TenantAdminPage() {
         <label>Usuário Instagram<input value={brandInstagram} placeholder="studio.nails" onChange={event=>setBrandInstagram(event.target.value)}/></label>
         <button type="submit" className="button primary" disabled={working}>Salvar marca e contatos</button>
       </form>}
+      {(platformOwner||membership?.role==="tenant_owner")&&user&&<StaffInvitations tenant={tenant} user={user} professionals={professionals}/>}
       <h2>Serviços</h2>
       <div className="grid cards">
         {services.map(service=><article className="card" key={service.id}>
