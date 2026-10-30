@@ -90,6 +90,13 @@ describe("tenant media isolation",()=>{
     });
     await assertSucceeds(upload("ownerA","tenants/a/public/portfolio/resumed.png"));
   });
+  it("não permite sobrescrever nem apagar mídia persistente",async()=>{
+    const key="tenants/a/public/portfolio/immutable.webp";
+    await assertSucceeds(upload("ownerA",key,"image/webp"));
+    await assertFails(upload("ownerA",key,"image/webp",new Uint8Array([82,73,70,70])));
+    await assertSucceeds(getBytes(file("ownerA",key)));
+    await assertSucceeds(getBytes(file(undefined,key)));
+  });
   it("nega arquivos executáveis e limites de upload, preservando fotos existentes",async()=>{
     const key="tenants/a/public/portfolio/test.exe";
     await assertFails(upload("ownerA",key,"application/x-msdownload"));
