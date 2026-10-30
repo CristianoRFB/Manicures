@@ -1544,6 +1544,60 @@ async function revokeStaffInvitation(request:Request,env:Env):Promise<Response>{
   return json(env,{ok:true,invitationId,status:"revoked"});
 }
 
+/** Platform-only repair for legacy/stale counters. Never changes roles or deletes data. */
+async function reconcileTenantStaffUsage(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const reason=typeof data.reason==="string"?data.reason.trim():"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId)||reason.length<10||reason.length>300)
+    return json(env,{error:"Tenant ou justificativa inválida."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||actor.actorRole!=="platform_owner")
+    return json(env,{error:"Apenas Platform Owner pode reconciliar quotas."},403);
+  const [tenant,counter,professionals,memberships]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`tenants/${tenantId}/usage/staff`),
+    listDocuments(env,token,`tenants/${tenantId}/professionals`),
+    listDocuments(env,token,"memberships"),
+  ]);
+  if(!tenant)return json(env,{error:"Tenant inexistente."},404);
+  const professionalsActive=professionals.filter(pro=>str(pro,"tenantId")===tenantId&&bool(pro,"active")).length;
+  const tenantAdminsAdditional=memberships.filter(m=>str(m,"tenantId")===tenantId&&
+    str(m,"role")==="tenant_admin"&&str(m,"status")==="active").length;
+  const previous={
+    professionalsActive:counter?.fields?.professionalsActive?.integerValue!==undefined
+      ?int(counter,"professionalsActive"):null,
+    tenantAdminsAdditional:counter?.fields?.tenantAdminsAdditional?.integerValue!==undefined
+      ?int(counter,"tenantAdminsAdditional"):null,
+  };
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const after={professionalsActive,tenantAdminsAdditional,updatedAt:now};
+  const writes=[
+    {update:{name:docName(env,`tenants/${tenantId}/usage/staff`),fields:fields(after)},
+      updateMask:{fieldPaths:["professionalsActive","tenantAdminsAdditional","updatedAt"]},
+      currentDocument:counter?.updateTime?{updateTime:counter.updateTime}:{exists:false}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+        action:"usage.staff_reconcile",resourceType:"staffUsage",
+        resourceId:"staff",reason,createdAt:now,
+        before:{professionalsActive:previous.professionalsActive??-1,
+          tenantAdminsAdditional:previous.tenantAdminsAdditional??-1},
+        after})},currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ALREADY_EXISTS|ABORTED/.test(detail))
+      return json(env,{error:"Equipe alterada em paralelo. Refaça a conferência."},409);
+    console.error("Staff reconcile failed",response.status,detail.slice(0,170));
+    return json(env,{error:"Erro ao reconciliar contadores."},500);
+  }
+  return json(env,{ok:true,before:previous,after:{professionalsActive,tenantAdminsAdditional},auditId});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1588,6 +1642,10 @@ export default {
     if (request.method === "POST" && url.pathname === "/api/admin/memberships/tenant-admin") {
       try { return await manageTenantAdmin(request,env); }
       catch(error) { console.error("Membership update failure",error); return json(env,{error:"Falha ao alterar administrador."},500); }
+    }
+    if(request.method==="POST" && url.pathname==="/api/platform/usage/reconcile"){
+      try{return await reconcileTenantStaffUsage(request,env);}
+      catch(error){console.error("Usage reconcile failed",error);return json(env,{error:"Falha na reconciliação."},500);}
     }
     if(request.method==="POST" && url.pathname==="/api/admin/usage"){
       try{return await tenantQuotaOverview(request,env);}
