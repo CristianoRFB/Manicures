@@ -205,6 +205,66 @@ describe("Trusted commercial and professional writes",()=>{
     expect((await cancelOwn("cliente1",id)).status).toBe(404);
     expect((await getFirestore(adminApp).doc(`tenants/a/appointments/${id}`).get()).data()?.customerId).toBeUndefined();
   });
+
+  it("cliente não reivindica guest automaticamente; studio aprova após verificação independente",async()=>{
+    const guest=await book("a","2026-11-03T14:00:00");
+    expect(guest.status).toBe(201);
+    const id=(await guest.json() as {appointment:{id:string}}).appointment.id;
+    await registerCustomer("cliente1");
+    const request=async(uid:string,appointmentId=id,phone="00000000000",tenantId="a")=>
+      customerRequest("/api/customers/guest-claims/request",uid,
+        {tenantId,appointmentId,bookingPhone:phone});
+    const db=getFirestore(adminApp);
+    expect((await request("cliente1",id,"5517999999999")).status).toBe(202);
+    expect((await db.collection("tenants/a/guestClaims").get()).empty).toBe(true);
+    expect((await request("cliente1")).status).toBe(202);
+    expect((await request("cliente1")).status).toBe(202);
+    expect((await db.collection("tenants/a/guestClaims").get()).size).toBe(1);
+    expect((await db.doc("tenants/a/appointments/"+id).get()).data()?.customerId).toBeUndefined();
+    const claimId=id+"_cliente1";
+    const adminCall=async(uid:string,action:"list"|"review",extra:Record<string,unknown>)=>
+      worker.fetch(new Request("http://worker.local/api/admin/guest-claims/"+action,{
+        method:"POST",headers:{"content-type":"application/json",
+          authorization:"Bearer "+await signedToken(uid)},body:JSON.stringify({tenantId:"a",...extra}),
+      }),env());
+    expect((await adminCall("ownerB","list",{})).status).toBe(403);
+    expect((await adminCall("ownerA","list",{})).status).toBe(200);
+    const invalid=await adminCall("ownerA","review",{claimId,decision:"approve",
+      reason:"Telefone informado pelo solicitante",identityVerifiedOffline:false});
+    expect(invalid.status).toBe(400);
+    const pending=await cancelOwn("cliente1",id);
+    expect(pending.status).toBe(404);
+    const reviews=await Promise.all([0,1].map(()=>adminCall("ownerA","review",{
+      claimId,decision:"approve",reason:"Titular confirmado presencialmente no studio",
+      identityVerifiedOffline:true,verificationMethod:"in_person",
+    })));
+    expect(reviews.filter(x=>x.status===200)).toHaveLength(1);
+    expect(reviews.filter(x=>x.status===409)).toHaveLength(1);
+    expect((await db.doc("tenants/a/appointments/"+id).get()).data()?.customerId).toBe("cliente1");
+    expect((await db.doc("tenants/a/guestClaims/"+claimId).get()).data()?.status).toBe("approved");
+    const logs=await db.collection("tenants/a/auditLogs").get();
+    expect(logs.docs.some(x=>x.data().action==="guest_claim.review")).toBe(true);
+    expect((await cancelOwn("cliente1",id)).status).toBe(200);
+  });
+  it("rejeição e isolamento A×B preservam reservas guest sem alterar customerId",async()=>{
+    const guest=await book("a","2026-11-03T14:00:00");
+    const id=(await guest.json() as {appointment:{id:string}}).appointment.id;
+    await registerCustomer("cliente1");
+    expect((await customerRequest("/api/customers/guest-claims/request","cliente1",{
+      tenantId:"b",appointmentId:id,bookingPhone:"00000000000",
+    })).status).toBe(403);
+    expect((await customerRequest("/api/customers/guest-claims/request","cliente1",{
+      tenantId:"a",appointmentId:id,bookingPhone:"00000000000",
+    })).status).toBe(202);
+    const call=async(uid:string,body:Record<string,unknown>)=>worker.fetch(new Request(
+      "http://worker.local/api/admin/guest-claims/review",{method:"POST",
+        headers:{"content-type":"application/json",authorization:"Bearer "+await signedToken(uid)},
+        body:JSON.stringify({tenantId:"a",claimId:id+"_cliente1",...body}),
+      }),env());
+    expect((await call("ownerB",{decision:"reject",reason:"Verificação negada pelo studio"})).status).toBe(403);
+    expect((await call("ownerA",{decision:"reject",reason:"Identidade não confirmada por outro canal"})).status).toBe(200);
+    expect((await getFirestore(adminApp).doc("tenants/a/appointments/"+id).get()).data()?.customerId).toBeUndefined();
+  });
   async function usageFor(uid:string,tenantId="a"){
     return worker.fetch(new Request("http://worker.local/api/admin/usage",{
       method:"POST",headers:{"content-type":"application/json",authorization:`Bearer ${await signedToken(uid)}`},
