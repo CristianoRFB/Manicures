@@ -17,7 +17,7 @@ test("real homepage, tenant A/B isolation and public booking screen",async({page
   await page.screenshot({path:join(folder,info.project.name+"-studio-a.png"),fullPage:true});
   await page.getByRole("link",{name:"Agendar agora"}).click();
   await expect(page).toHaveURL(/\/demo\/book$/);
-  await expect(page.getByText(/demonstração somente visual/i)).toBeVisible();
+  await expect(page.getByRole("heading",{name:"Novo agendamento"})).toBeVisible();
   await page.screenshot({path:join(folder,info.project.name+"-booking.png"),fullPage:true});
   await page.goto("/demo-b");
   await expect(page.getByRole("heading",{name:/Ateliê Demo B/})).toBeVisible();
