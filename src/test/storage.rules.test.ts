@@ -69,6 +69,27 @@ describe("tenant media isolation",()=>{
     await assertFails(upload("customerA",key));
     await assertFails(upload("ownerB",key));
   });
+  it("pausa de upload bloqueia todos os papéis só em tenant A sem retirar leitura",async()=>{
+    const existing="tenants/a/public/portfolio/existing.png";
+    await assertSucceeds(upload("ownerA",existing));
+    await env.withSecurityRulesDisabled(async context=>{
+      await setDoc(doc(context.firestore(),"tenants/a"),{
+        status:"active",kind:"real",name:"Studio A",mediaUploadsPaused:true,
+      });
+    });
+    await assertSucceeds(getBytes(file(undefined,existing)));
+    await assertFails(upload("ownerA","tenants/a/public/portfolio/paused.png"));
+    await assertFails(upload("platform","tenants/a/public/portfolio/platform.png"));
+    await assertFails(upload("customerA","tenants/a/customers/customerA/blocked.png"));
+    await assertFails(upload("proA","tenants/a/professionals/p1/blocked.png"));
+    await assertSucceeds(upload("ownerB","tenants/b/public/portfolio/allowed.png"));
+    await env.withSecurityRulesDisabled(async context=>{
+      await setDoc(doc(context.firestore(),"tenants/a"),{
+        status:"active",kind:"real",name:"Studio A",mediaUploadsPaused:false,
+      });
+    });
+    await assertSucceeds(upload("ownerA","tenants/a/public/portfolio/resumed.png"));
+  });
   it("nega arquivos executáveis e limites de upload, preservando fotos existentes",async()=>{
     const key="tenants/a/public/portfolio/test.exe";
     await assertFails(upload("ownerA",key,"application/x-msdownload"));
