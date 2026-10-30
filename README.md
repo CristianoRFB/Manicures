@@ -19,7 +19,7 @@ Esta branch contém o CORE multi-tenant e implementação **parcial** do Global 
 - controle emergencial de uploads por tenant auditado e galeria paginada com 12 fotos por página;
 - solicitação/revisão e exclusão física controlada de mídia com geração exata, CAS e auditoria; **desabilitada por padrão, validada somente no Storage Emulator, nunca executada em produção**.
 
-**Métrica de engenharia pré-PC:** 39/42 (92,9%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
+**Métrica de engenharia pré-PC:** 40/42 (95,2%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
 
 ## Setup
 ```bash
@@ -75,3 +75,8 @@ A branch segura permanece em PR draft, sem merge e sem deploy automático.
 - `MEDIA_DELETION_ENABLED` ausente/false impede todas as remoções; `FIREBASE_STORAGE_BUCKET` obrigatório, credencial de serviço e revisão prévia. Não habilitar em produção sem QA staging e processo autorizado.
 - Teste de exclusão de arquivo fictício rodou no Firebase Storage Emulator real; caches externos e backups não são eliminados por isso.
 - Fluxo completo e suas limitações: `docs/STORAGE_DELETION_RUNBOOK.md`.
+
+## Verificações de navegador e recuperação de histórico
+- `npm run qa:browser` captura as telas públicas em Chromium desktop/mobile com DEMO local e **sem dados reais**.
+- `npm run qa:browser:auth` captura áreas privadas com Auth/Firestore Emulators sintéticos após `scripts/seed-emulator.mjs`; CI guarda os screenshots em artefato Actions por 14 dias.
+- `/customer/:tenantSlug` permite pedir revisão de um agendamento antigo feito sem login; aprovação na área admin exige identidade confirmada independentemente. Não há reivindicação automática por telefone. Ler `docs/GUEST_HISTORY_LINKING.md`.

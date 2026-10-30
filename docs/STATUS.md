@@ -6,7 +6,7 @@
 - Produção: **NÃO DEPLOYED**. PR ainda draft e sem merge na main.
 
 ## Medição técnica
-**39/42 = 92,9% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
+**40/42 = 95,2% CODE_COMPLETE estimado**, tomando como denominador o baseline 42 da fase anterior.
 Não inclui navegador real, deploy, dados reais ou features comerciais DEFERRED.
 Ver `docs/PRE_PC_COMPLETENESS.md`.
 
@@ -15,14 +15,14 @@ Ver `docs/PRE_PC_COMPLETENESS.md`.
 - M2 Agenda/serviços: CRUD de serviço com arquivamento, edição de profissional/serviços vinculados, expediente semanal, pausas, folgas, booking por slots e CAS, remarcação atômica, status/no-show e histórico preservado.
 - M3 UX: painel privado do tenant, agenda profissional filtrada, autoatendimento de cliente verificado, cancelamento próprio, editor white-label e histórico admin.
 - M4 Operação: convites 48h de uso único permitem novos vínculos e transições seguras de customer/professional/admin com CAS e quotas; reconciliação de staff, downgrade sem exclusão, CSV, recuperação Firebase e isolamento A×B.
-- M5 Qualidade: CI TypeScript, unitários, Worker, Auth/Firestore/Storage Emulator com exclusão física de objeto fictício, build e docs check; `npm run test:pre-pc`.
+- M5 Qualidade: CI TypeScript, unitários, Worker, Auth/Firestore/Storage Emulator com exclusão física fictícia, Playwright real desktop/mobile com screenshots DEMO, build e docs check; `npm run test:pre-pc`.
 
 ## Incompleto (não afirmar pronto)
-- Reservas guest antigas não são reivindicadas automaticamente pelo cliente logado, por segurança.
+- Reservas guest antigas: pedido autenticado, revisão independente manual do studio e vínculo CAS auditado implementados; nenhuma associação automática por telefone e nenhum dado real migrado.
 - Convites de entrega manual e transição de membros existentes implementados; transferências de tenant_owner deliberadamente proibidas, sem envio automático de e-mail.
 - Mídia: execução física implementada, mas DESABILITADA por padrão; exige Platform Owner, pré-aprovação, geração exata, CAS, verificação no Storage e audit log. Testes com Firebase Storage Emulator real; ainda falta staging, validação de IAM, governança de egress/caches/backups e LGPD total (docs/STORAGE_DELETION_RUNBOOK.md).
 - Trial de 14 dias mantém trialUntil em edições repetidas; UI avisa vencimento, expiração e suspensões. Estado comercial continua manual, sem cobrança automática.
-- Browser real mobile/desktop, screenshots reais, QA visual e deploy/staging.
+- Chromium desktop/mobile com screenshots REAIS do DEMO e telas privadas com Firebase Emulators sintéticos executados em Actions; ainda faltam QA em staging, dispositivo físico, acessibilidade profunda e deploy.
 
 ## Preservações
 - Tenant A × Tenant B e autenticação forte são CORE, nunca Premium.

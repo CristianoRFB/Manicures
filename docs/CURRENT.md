@@ -28,3 +28,5 @@ Não confundir:
 - screenshot real = evidência visual de UI executada;
 - diagrama = representação técnica;
 - generated visual = conceito.
+
+Evidências de navegador: `docs/BROWSER_QA_EVIDENCE.md` e `docs/versions/v01-codex-ready-core-first/SCREENS.md`. Fluxo guest legado: `docs/GUEST_HISTORY_LINKING.md`.

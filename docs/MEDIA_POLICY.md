@@ -38,3 +38,6 @@ Homologar e medir em ambiente seguro: formato real e capacidade, links públicos
 5. O Worker grava `deleted_verified` e audit log somente após o provedor retornar objeto ausente; conferir evidências, URLs/caches/backups e obrigações legais separadamente.
 
 **Limitações ainda abertas:** inventário/medição integral, custos e egress, validação GCS staging/IAM, propagação de links/caches, LGPD ponta a ponta, legados e QA real. Nenhuma retenção genérica/TTL foi ativada. Consulte `docs/STORAGE_DELETION_RUNBOOK.md`.
+
+## Observabilidade parcial de capacidade
+O endpoint `/api/platform/media/inventory` retorna bytes e classificação por **página consultada** em `metrics` e o painel soma somente páginas carregadas. Tipos legados são explicitamente identificados. Isso NÃO mede egress, custos reais, tarifas do Firebase ou quota de serviços. Não criar limites comerciais fictícios; ainda faltam métricas do provedor e alertas reais.
