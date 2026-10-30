@@ -1,5 +1,5 @@
 import {useCallback,useEffect,useState,type FormEvent} from "react";
-import {getDownloadURL,listAll,ref,uploadBytes} from "firebase/storage";
+import {getDownloadURL,list,ref,uploadBytes} from "firebase/storage";
 import {getFirebaseServices} from "../lib/firebase";
 import {normalizePortfolioImage,validatePortfolioSource} from "../lib/media";
 
@@ -15,24 +15,40 @@ export function StudioPortfolio({tenantId,canManage=false,uploadsPaused=false}:{
   const [error,setError]=useState("");
   const [message,setMessage]=useState("");
   const [revision,setRevision]=useState(0);
-  const reload=useCallback(async()=>{
+  const [nextPageToken,setNextPageToken]=useState<string|null>(null);
+  const [loadingMore,setLoadingMore]=useState(false);
+  const loadPage=useCallback(async(pageToken?:string)=>{
     const firebase=getFirebaseServices();
-    if(!firebase)return [];
+    if(!firebase)return {items:[] as PortfolioImage[],token:null as string|null};
     const folder=ref(firebase.storage,`tenants/${tenantId}/public/portfolio`);
-    const items=await listAll(folder);
-    const result=await Promise.all(items.items.map(async item=>({
-      path:item.fullPath,url:await getDownloadURL(item)
+    // Do not enumerate every file or download every URL on a public visit.
+    const page=await list(folder,{maxResults:12,...(pageToken?{pageToken}:{})});
+    const items=await Promise.all(page.items.map(async item=>({
+      path:item.fullPath,url:await getDownloadURL(item),
     })));
-    return result.sort((a,b)=>a.path.localeCompare(b.path));
+    return {items:items.sort((a,b)=>a.path.localeCompare(b.path)),token:page.nextPageToken??null};
   },[tenantId]);
   useEffect(()=>{
     let alive=true;
-    setPhotos([]);setError("");setLoading(true);
-    reload().then(data=>{if(alive)setPhotos(data);})
+    setPhotos([]);setError("");setLoading(true);setNextPageToken(null);
+    loadPage().then(page=>{if(alive){setPhotos(page.items);setNextPageToken(page.token);}})
       .catch(err=>{if(alive)setError(err instanceof Error?err.message:"Não foi possível carregar imagens.");})
       .finally(()=>{if(alive)setLoading(false);});
     return()=>{alive=false;};
-  },[reload,revision]);
+  },[loadPage,revision]);
+  async function loadMore(){
+    if(!nextPageToken||loadingMore)return;
+    setLoadingMore(true);setError("");
+    try{
+      const page=await loadPage(nextPageToken);
+      setPhotos(old=>{
+        const seen=new Set(old.map(photo=>photo.path));
+        return [...old,...page.items.filter(item=>!seen.has(item.path))];
+      });
+      setNextPageToken(page.token);
+    }catch(err){setError(err instanceof Error?err.message:"Não foi possível carregar mais fotos.");}
+    finally{setLoadingMore(false);}
+  }
 
   async function upload(event:FormEvent){
     event.preventDefault();
@@ -73,7 +89,10 @@ export function StudioPortfolio({tenantId,canManage=false,uploadsPaused=false}:{
     {loading?<p role="status">Carregando fotos publicadas…</p>:photos.length>0?
       <div className="portfolio-grid">{photos.map(photo=><figure className="portfolio-photo" key={photo.path}>
         <img src={photo.url} alt="Trabalho publicado no portfólio do studio" loading="lazy" decoding="async"/>
-      </figure>)}</div>:
+      </figure>)}
+        {nextPageToken&&<button className="button" type="button" disabled={loadingMore}
+          onClick={()=>void loadMore()}>{loadingMore?"Carregando…":"Carregar mais fotos"}</button>}
+      </div>:
       <p>{getFirebaseServices()?"O studio ainda não publicou fotos no portfólio.":"Portfólio real disponível somente com Firebase configurado."}</p>}
   </section>;
 }
