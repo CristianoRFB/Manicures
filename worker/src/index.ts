@@ -1359,11 +1359,191 @@ async function tenantQuotaOverview(request:Request,env:Env):Promise<Response>{
     limits,exceeded,subscriptionStatus:parseCommercial(tenant)?.subscriptionStatus??"legacy"});
 }
 
+
+/** Staff invitation is a tenant-scoped, expiring, one-use document, NOT an Auth user. */
+function inviteIdentity(request:Request,env:Env):Promise<{uid:string;email:string}|null>{
+  return (async()=>{
+    const authorization=request.headers.get("authorization")??"";
+    if(!authorization.startsWith("Bearer "))return null;
+    const raw=authorization.slice(7);
+    let uid:string;
+    try{uid=await verifyFirebaseIdToken(raw,env);}
+    catch{return null;}
+    if(!/^[A-Za-z0-9_-]{1,100}$/.test(uid))return null;
+    try{
+      const claims=JSON.parse(new TextDecoder().decode(parseBase64Url(raw.split(".")[1]))) as {
+        email?:string;email_verified?:boolean;
+      };
+      const email=typeof claims.email==="string"?claims.email.trim().toLowerCase():"";
+      if(claims.email_verified!==true || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length>254)
+        return null;
+      return {uid,email};
+    }catch{return null;}
+  })();
+}
+async function issueStaffInvitation(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const email=typeof data.email==="string"?data.email.trim().toLowerCase():"";
+  const role=data.role==="tenant_admin"||data.role==="professional"?data.role:"";
+  const professionalId=typeof data.professionalId==="string"?data.professionalId:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId) ||
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length>254 || !role ||
+    (role==="professional" && !/^[A-Za-z0-9_-]{1,100}$/.test(professionalId)) ||
+    (role!=="professional"&&professionalId))
+    return json(env,{error:"Tenant, e-mail ou papel do convite inválido."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||!["tenant_owner","platform_owner"].includes(actor.actorRole))
+    return json(env,{error:"Somente proprietário pode emitir convites."},403);
+  const [tenant,professional]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    role==="professional"?getDocument(env,token,`tenants/${tenantId}/professionals/${professionalId}`):Promise.resolve(null),
+  ]);
+  if(!tenant||str(tenant,"status")!=="active")return json(env,{error:"Tenant indisponível."},404);
+  if(role==="professional"&&(!professional||str(professional,"tenantId")!==tenantId||!bool(professional,"active")))
+    return json(env,{error:"Profissional não encontrada ou inativa."},400);
+  if(role==="tenant_admin" && getLimit(asTenant(tenant,tenantId),"tenant_admins")===0)
+    return json(env,{error:"O plano atual não permite administradores adicionais."},409);
+  const invitationId=crypto.randomUUID(),auditId=crypto.randomUUID();
+  const now=new Date().toISOString(),expiresAtEpochMs=Date.now()+48*60*60*1000;
+  const invitation={tenantId,email,role,professionalId:role==="professional"?professionalId:"",
+    status:"pending",expiresAtEpochMs,createdAt:now,createdBy:actor.actorId};
+  const writes=[
+    {update:{name:docName(env,`tenants/${tenantId}/invitations/${invitationId}`),
+      fields:fields(invitation)},currentDocument:{exists:false}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+        action:"membership.invite_create",resourceType:"invitation",resourceId:invitationId,
+        role,createdAt:now})},currentDocument:{exists:false}},
+  ];
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok)return json(env,{error:"Falha ao emitir convite."},500);
+  // No automated email delivery is configured: owner must share this code privately.
+  return json(env,{ok:true,invitationId,role,expiresAtEpochMs,delivery:"manual"},201);
+}
+async function redeemStaffInvitation(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const invitationId=typeof data.invitationId==="string"?data.invitationId:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId) ||
+    !/^[0-9a-f-]{36}$/.test(invitationId))
+    return json(env,{error:"Convite inválido."},400);
+  const identity=await inviteIdentity(request,env);
+  if(!identity)return json(env,{error:"Faça login com e-mail confirmado."},401);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const [tenant,invitation,existing]=await Promise.all([
+    getDocument(env,token,`tenants/${tenantId}`),
+    getDocument(env,token,`tenants/${tenantId}/invitations/${invitationId}`),
+    getDocument(env,token,`memberships/${tenantId}_${identity.uid}`),
+  ]);
+  if(!tenant||str(tenant,"status")!=="active")return json(env,{error:"Studio indisponível."},404);
+  if(!invitation||!invitation.updateTime || str(invitation,"tenantId")!==tenantId ||
+    str(invitation,"status")!=="pending" || int(invitation,"expiresAtEpochMs")<=Date.now() ||
+    str(invitation,"email")!==identity.email)
+    return json(env,{error:"Convite inválido, expirado, utilizado ou destinado a outro e-mail."},403);
+  if(existing)return json(env,{error:"A conta já possui um vínculo neste studio. Solicite suporte ao proprietário."},409);
+  const role=str(invitation,"role");
+  if(!["tenant_admin","professional"].includes(role))return json(env,{error:"Papel inválido."},400);
+  const professionalId=str(invitation,"professionalId");
+  if(role==="professional"){
+    const pro=await getDocument(env,token,`tenants/${tenantId}/professionals/${professionalId}`);
+    if(!pro||str(pro,"tenantId")!==tenantId||!bool(pro,"active"))
+      return json(env,{error:"Vínculo profissional indisponível."},409);
+  }
+  const counterPath=`tenants/${tenantId}/usage/staff`;
+  const counter=role==="tenant_admin"?await getDocument(env,token,counterPath):null;
+  let count=0;
+  if(role==="tenant_admin"){
+    count=counter&&counter.fields?.tenantAdminsAdditional?.integerValue!==undefined
+      ?int(counter,"tenantAdminsAdditional")
+      :(await listDocuments(env,token,"memberships")).filter(m=>str(m,"tenantId")===tenantId
+        &&str(m,"role")==="tenant_admin"&&str(m,"status")==="active").length;
+    const max=getLimit(asTenant(tenant,tenantId),"tenant_admins");
+    if(!Number.isSafeInteger(count)||count<0||max===0||(max!==null&&count+1>max))
+      return json(env,{error:"Quota de administradores atingida ou inconsistente."},409);
+  }
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const member={tenantId,userId:identity.uid,role,status:"active",
+    ...(role==="professional"?{professionalId}:{}),createdAt:now};
+  const writes:Array<Record<string,unknown>>=[
+    {update:{name:docName(env,`memberships/${tenantId}_${identity.uid}`),
+      fields:fields(member)},currentDocument:{exists:false}},
+    {update:{name:docName(env,`tenants/${tenantId}/invitations/${invitationId}`),
+      fields:fields({status:"accepted",acceptedAt:now,acceptedBy:identity.uid})},
+      updateMask:{fieldPaths:["status","acceptedAt","acceptedBy"]},
+      currentDocument:{updateTime:invitation.updateTime}},
+  ];
+  if(role==="tenant_admin")
+    writes.push({update:{name:docName(env,counterPath),
+      fields:fields({tenantAdminsAdditional:count+1,updatedAt:now})},
+      updateMask:{fieldPaths:["tenantAdminsAdditional","updatedAt"]},
+      currentDocument:counter?.updateTime?{updateTime:counter.updateTime}:{exists:false}});
+  writes.push({update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+    fields:fields({tenantId,actorId:identity.uid,actorRole:role,action:"membership.invite_accept",
+      resourceType:"invitation",resourceId:invitationId,createdAt:now})},currentDocument:{exists:false}});
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok){
+    const detail=await response.text();
+    if([409,412].includes(response.status)||/FAILED_PRECONDITION|ABORTED|ALREADY_EXISTS/.test(detail))
+      return json(env,{error:"Convite utilizado ou equipe modificada simultaneamente."},409);
+    console.error("Invite acceptance failed",response.status,detail.slice(0,160));
+    return json(env,{error:"Não foi possível aceitar convite."},500);
+  }
+  return json(env,{ok:true,role,tenantId});
+}
+async function revokeStaffInvitation(request:Request,env:Env):Promise<Response>{
+  const data=await request.json() as Record<string,unknown>;
+  const tenantId=typeof data.tenantId==="string"?data.tenantId:"";
+  const invitationId=typeof data.invitationId==="string"?data.invitationId:"";
+  if(!/^[A-Za-z0-9_-]{1,100}$/.test(tenantId)||!/^[0-9a-f-]{36}$/.test(invitationId))
+    return json(env,{error:"Convite inválido."},400);
+  const token=env.FIRESTORE_EMULATOR_HOST?"":await serviceAccessToken(env);
+  const actor=await tenantAdminIdentity(request,env,tenantId,token);
+  if(!actor||!["tenant_owner","platform_owner"].includes(actor.actorRole))
+    return json(env,{error:"Sem autorização."},403);
+  const invitation=await getDocument(env,token,`tenants/${tenantId}/invitations/${invitationId}`);
+  if(!invitation||!invitation.updateTime||str(invitation,"status")!=="pending")
+    return json(env,{error:"Convite não está pendente."},409);
+  const now=new Date().toISOString(),auditId=crypto.randomUUID();
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const writes=[
+    {update:{name:docName(env,`tenants/${tenantId}/invitations/${invitationId}`),
+      fields:fields({status:"revoked",revokedAt:now,revokedBy:actor.actorId})},
+      updateMask:{fieldPaths:["status","revokedAt","revokedBy"]},
+      currentDocument:{updateTime:invitation.updateTime}},
+    {update:{name:docName(env,`tenants/${tenantId}/auditLogs/${auditId}`),
+      fields:fields({tenantId,actorId:actor.actorId,actorRole:actor.actorRole,
+        action:"membership.invite_revoke",resourceType:"invitation",
+        resourceId:invitationId,createdAt:now})},currentDocument:{exists:false}},
+  ];
+  const response=await fetch(commitUrl(env),{method:"POST",headers,body:JSON.stringify({writes})});
+  if(!response.ok)return json(env,{error:"Convite alterado; atualize e tente novamente."},409);
+  return json(env,{ok:true,invitationId,status:"revoked"});
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
     if (request.method === "GET" && url.pathname === "/health") return json(env, { ok: true, service: "saas-manicure-booking-api" });
+    if(request.method==="POST" && url.pathname==="/api/admin/invitations/create"){
+      try{return await issueStaffInvitation(request,env);}
+      catch(error){console.error("Invite create failed",error);return json(env,{error:"Falha ao emitir convite."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/admin/invitations/revoke"){
+      try{return await revokeStaffInvitation(request,env);}
+      catch(error){console.error("Invite revoke failed",error);return json(env,{error:"Falha ao revogar convite."},500);}
+    }
+    if(request.method==="POST" && url.pathname==="/api/invitations/accept"){
+      try{return await redeemStaffInvitation(request,env);}
+      catch(error){console.error("Invite acceptance failed",error);return json(env,{error:"Falha ao aceitar convite."},500);}
+    }
     if(request.method==="POST" && url.pathname==="/api/customers/enroll"){
       try{return await enrollCustomer(request,env);}
       catch(error){console.error("Customer enroll failed",error);return json(env,{error:"Falha ao cadastrar cliente."},500);}
