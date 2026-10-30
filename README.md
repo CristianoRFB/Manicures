@@ -17,9 +17,9 @@ Esta branch contém o CORE multi-tenant e implementação **parcial** do Global 
 - reconciliação de contadores legados exclusiva do Platform Owner, sem alterar dados da equipe;
 - trial de 14 dias sem prorrogação silenciosa, avisos de vencimento/estado;
 - controle emergencial de uploads por tenant auditado e galeria paginada com 12 fotos por página;
-- solicitações e revisões de retirada de foto com caminho tenant-scoped, audit log e CAS; **a exclusão física não está implementada**.
+- solicitação/revisão e exclusão física controlada de mídia com geração exata, CAS e auditoria; **desabilitada por padrão, validada somente no Storage Emulator, nunca executada em produção**.
 
-**Métrica de engenharia pré-PC:** 38/42 (90,5%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
+**Métrica de engenharia pré-PC:** 39/42 (92,9%) estimada com evidências descritas em `docs/PRE_PC_COMPLETENESS.md`. Teste de navegador, staging e deploy pendentes. Consulte CI do HEAD antes de declarar PASS.
 
 ## Setup
 ```bash
@@ -69,3 +69,9 @@ A branch segura permanece em PR draft, sem merge e sem deploy automático.
 - O convidado entra em `/invite/:tenantSlug`, usa sua conta Firebase com e-mail verificado e informa o código; acesso é criado atomicamente pelo Worker.
 - Convite de administrador consome quota no ACEITE. Converter membro existente exige NOVO convite, e-mail verificado e aceite do titular, com atualização atômica e preservação do histórico; promoção direta ainda é proibida.
 - O Platform Owner pode reconciliar contadores divergentes no painel `/platform`, com justificativa e auditoria; isso nunca remove vínculos nem muda plano.
+
+## Mídia: execução física com confirmação
+- `/platform` tem inventário de até 100 objetos por página (geração/tamanho) e execução após aprovação; exige confirmação literal e justificativa.
+- `MEDIA_DELETION_ENABLED` ausente/false impede todas as remoções; `FIREBASE_STORAGE_BUCKET` obrigatório, credencial de serviço e revisão prévia. Não habilitar em produção sem QA staging e processo autorizado.
+- Teste de exclusão de arquivo fictício rodou no Firebase Storage Emulator real; caches externos e backups não são eliminados por isso.
+- Fluxo completo e suas limitações: `docs/STORAGE_DELETION_RUNBOOK.md`.

@@ -37,7 +37,7 @@ Resposta inclui `objects`, `generation`, `size`, `nextPageToken` e `exhaustive`.
 **Não há ambiente de produção com isso habilitado nesta etapa.** Os resultados em testes simulados NÃO demonstram integração real com Cloud Storage em deploy.
 
 ## Pendências remanescentes
-- Prova real (não simulada) do fluxo físico no Storage Emulator e staging GCS, revisão de IAM e testes de falha de rede concorrente.
+- Fluxo físico já testado no Firebase Storage Emulator com arquivo fictício: upload, aprovação, exclusão por geração, ausência verificada e tombstone. **Staging GCS e IAM real seguem pendentes.** Testes simulados adicionais cobrem geração errada, mídia legacy, interrupção e retomada.
 - Controle de inventário completo e reconciliação com quota/custos/egress; a página limitada é apenas insumo.
 - Revogação/propagação de URLs, caches externos, backups e LGPD ponta a ponta.
 - Registros LEGACY/UNKNOWN tratados em plano separado sem exclusão oportunista.
