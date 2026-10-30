@@ -244,7 +244,7 @@ describe("Trusted commercial and professional writes",()=>{
     const {invitationId}=await issued.json() as {invitationId:string};
     expect((await claimInvite("newAdmin",invitationId,"a",false)).status).toBe(401);
     expect((await claimInvite("newAdmin",invitationId,"a",true,"wrong@example.test")).status).toBe(403);
-    expect((await claimInvite("newAdmin",invitationId,"b")).status).toBe(404);
+    expect((await claimInvite("newAdmin",invitationId,"b")).status).toBe(403);
     const concurrent=await Promise.all([
       claimInvite("newAdmin",invitationId),
       claimInvite("newAdmin",invitationId),
