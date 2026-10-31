@@ -17,6 +17,7 @@
     "../src/commercial/planCatalog.ts",
     "../src/commercial/entitlements.ts",
     "../src/domain/types.ts",
-    "src/mediaStorage.ts"
+    "src/mediaStorage.ts",
+    "../src/domain/studioTime.ts"
   ]
 }

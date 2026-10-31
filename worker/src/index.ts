@@ -1,5 +1,6 @@
 import { assertCommercialChange, evaluate, getLimit, type CommercialState } from "../../src/commercial/entitlements";
 import type { Tenant } from "../../src/domain/types";
+import {validStudioBookingInterval} from "../../src/domain/studioTime";
 import {getStoredObject,deleteStoredGeneration,listStoredObjects,summarizeStoragePage,scanStoragePrefix} from "./mediaStorage";
 
 interface Env {
@@ -244,10 +245,8 @@ function fields(record: Record<string, unknown>) {
 
 function addMinutes(iso: string, minutes: number): string {
   const { dateKey, startMinute } = localParts(iso);
-  const total = startMinute + minutes;
-  const hh = String(Math.floor(total / 60)).padStart(2, "0");
-  const mm = String(total % 60).padStart(2, "0");
-  return `${dateKey}T${hh}:${mm}:00`;
+  const atMidnight=Date.parse(`${dateKey}T00:00:00Z`);
+  return new Date(atMidnight+(startMinute+minutes)*60000).toISOString().slice(0,19);
 }
 
 function lockMinutes(startMinute: number, endMinute: number): number[] {
@@ -275,13 +274,12 @@ function validDate(date:string):boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(Date.parse(`${date}T12:00:00Z`))
     && new Date(`${date}T12:00:00Z`).toISOString().slice(0,10)===date;
 }
-function validWindow(tenant:FireDoc,start:string) {
+function validWindow(tenant:FireDoc,start:string,end:string,durationMin:number) {
   const {timezone,bookingHorizonDays,minLeadMinutes}=settings(tenant);
-  const nowLocal=zonedNowString(timezone);
-  const startMs=Date.parse(`${start}Z`),nowMs=Date.parse(`${nowLocal}Z`);
-  const gapMinutes=(startMs-nowMs)/60000;
-  return Number.isFinite(gapMinutes) && gapMinutes >= minLeadMinutes
-    && gapMinutes <= bookingHorizonDays*1440;
+  return validStudioBookingInterval({
+    startsAt:start,endsAt:end,durationMin,timeZone:timezone,nowMs:Date.now(),
+    bookingHorizonDays,minLeadMinutes,
+  });
 }
 type DailyHours = {closed:boolean;startMinute:number;endMinute:number;breakStartMinute:number;breakEndMinute:number};
 const DEFAULT_HOURS:DailyHours={closed:false,startMinute:540,endMinute:1080,breakStartMinute:720,breakEndMinute:780};
@@ -447,8 +445,8 @@ async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDo
   for(let minutes=hours.startMinute;minutes+duration<=hours.endMinute;minutes+=30) {
     if(!inWorkingHours(hours,minutes,minutes+duration))continue;
     const start=`${date}T${String(Math.floor(minutes/60)).padStart(2,"0")}:${String(minutes%60).padStart(2,"0")}:00`;
-    if(!validWindow(tenant,start))continue;
     const end=addMinutes(start,duration);
+    if(!validWindow(tenant,start,end,duration))continue;
     const occupied=lockMinutes(minutes,minutes+duration).some(minute=>busy.has(minute));
     const blocked=intervals.some(block=>start<block.end && end>block.start);
     if(!occupied && !blocked)result.push(start);

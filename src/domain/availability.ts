@@ -25,9 +25,8 @@ export function createSlots(date: string, service: Service, professional: Profes
 }
 
 export function atMinutes(date: string, minutes: number): string {
-  const hh = Math.floor(minutes / 60).toString().padStart(2, "0");
-  const mm = (minutes % 60).toString().padStart(2, "0");
-  return `${date}T${hh}:${mm}:00`;
+  const midnight=Date.parse(`${date}T00:00:00Z`);
+  return new Date(midnight+minutes*60000).toISOString().slice(0,19);
 }
 
 export function addMinutes(isoLocal: string, minutes: number): string {
