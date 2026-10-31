@@ -9,6 +9,14 @@ GitHub Actions → **Staging read-only smoke** → Run workflow. Informar:
 
 Alternativa local: `STAGING_WEB_ORIGIN=https://... STAGING_API_ORIGIN=https://... npm run qa:staging:smoke`. Para validar o código da ferramenta sem rede: `npm run qa:staging:smoke:test`.
 
+## Verificação opcional de índices Firestore em staging
+Preencha também os quatro campos opcionais do workflow (**todos juntos**): `sample_tenant_id`, `sample_service_id`, `sample_professional_id`, `sample_date` (YYYY-MM-DD). Use somente um tenant **fictício criado previamente no staging isolado**, com plano que permita booking, serviço/profissional ativos, data dentro do horizonte e ao menos um slot disponível. O probe envia apenas GET público de disponibilidade, sem dados pessoais e sem alterar reservas.
+
+- Resposta 200 com data/fuso e pelo menos um horário disponível comprova, nesse momento e tenant sintético, que a consulta real de locks e bloqueios respondeu. Não comprova IAM/GCS, backup, contas reais ou outras Rules.
+- Ausência dos quatro parâmetros mantém somente os cinco testes básicos e retorna `syntheticIndexProbe: NOT_RUN` — não anunciar índices homologados.
+- Parâmetros parciais, data impossível, ids inválidos, respostas vazias ou erro de índice fazem o teste falhar, sem fallback para sucesso.
+- Não executar essa ferramenta contra produção nem usar tenant/conta/dados reais.
+
 ## Cinco verificações não destrutivas
 1. HTML do frontend servido por HTTPS.
 2. `GET /health`: identidade do Worker, CORS de frontend exato, `no-store`, `nosniff`, `Vary: Origin`.
