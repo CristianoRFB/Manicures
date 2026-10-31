@@ -4,7 +4,7 @@ import { repository } from "../data/repository";
 import { createProtectedBooking, getProtectedAvailability } from "../data/bookingApi";
 import type { Appointment, Professional, Service, Tenant } from "../domain/types";
 import { createSlots } from "../domain/availability";
-import { localCalendarDate } from "../domain/localCalendarDate";
+import { localCalendarDate, studioCalendarDate } from "../domain/localCalendarDate";
 import { resolveTenant } from "../lib/tenantResolver";
 import { TenantTheme } from "../components/TenantTheme";
 import { demoModeEnabled } from "../lib/firebase";
@@ -48,6 +48,7 @@ export function BookingPage() {
       ]);
       if(!active)return;
       setTenant(resolved);setServices(s);setProfessionals(p);setAppointments(a);
+      setDate(studioCalendarDate(resolved.businessSettings?.timezone || "America/Sao_Paulo",1));
       setServiceId(s[0]?.id??"");setProfessionalId(p[0]?.id??"");
       setLoaded(true);
     }).catch(error=>{
@@ -69,6 +70,12 @@ export function BookingPage() {
     return()=>{live=false;};
   },[tenant?.id,user?.uid]);
 
+  const timezone = tenant?.businessSettings?.timezone || "America/Sao_Paulo";
+  const studioToday = tenant ? studioCalendarDate(timezone) : localCalendarDate();
+  const horizonDays = tenant?.businessSettings?.bookingHorizonDays;
+  const studioMaxDate = tenant && typeof horizonDays === "number" && Number.isSafeInteger(horizonDays)
+    && horizonDays > 0 && horizonDays <= 365 ? studioCalendarDate(timezone,horizonDays) : null;
+  const invalidCalendarDate = date < studioToday || Boolean(studioMaxDate && date > studioMaxDate);
   const service = services.find((item) => item.id === serviceId);
   const eligibleProfessionals = professionals.filter((item) => item.serviceIds.includes(serviceId));
   const professional = eligibleProfessionals.find((item) => item.id === professionalId) ?? eligibleProfessionals[0];
@@ -85,9 +92,11 @@ export function BookingPage() {
     if (!tenant || !service || !professional || !date) {
       setAvailable([]);setSlotsLoading(false);return;
     }
-    if (date < localCalendarDate()) {
+    if (invalidCalendarDate) {
       setAvailable([]);setSlot("");setSlotsLoading(false);
-      setSlotsError("Selecione uma data atual ou futura.");return;
+      setSlotsError(date < studioToday
+        ? "Selecione uma data atual ou futura no calendário do studio."
+        : "A data escolhida ultrapassa o prazo de agendamento do studio.");return;
     }
     if (demoModeEnabled()) {setAvailable(localSlots);setSlot(current=>localSlots.includes(current)?current:"");setSlotsLoading(false);setSlotsError("");return;}
     let alive=true;
@@ -97,11 +106,11 @@ export function BookingPage() {
       .catch(err=>{if(alive)setSlotsError(err instanceof Error ? err.message : "Falha ao buscar horários.");})
       .finally(()=>{if(alive)setSlotsLoading(false);});
     return ()=>{alive=false;};
-  },[tenant,service,professional,date,localSlots]);
+  },[tenant,service,professional,date,localSlots,invalidCalendarDate,studioToday]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!tenant || !service || !professional || !slot || !available.includes(slot) || date < localCalendarDate() || !name.trim() || !phone.trim()) {
+    if (!tenant || !service || !professional || !slot || !available.includes(slot) || invalidCalendarDate || !name.trim() || !phone.trim()) {
       setMessage("Preencha os dados e selecione um horário.");
       return;
     }
@@ -140,6 +149,7 @@ export function BookingPage() {
       <section className="page narrow">
         {tenant.kind === "demo" && <div className="badge">DEMONSTRAÇÃO</div>}
         <h1>Novo agendamento</h1>
+        <p className="subtle">Horários no fuso do studio: {timezone}.</p>
         <p>{linkedCustomer?"Reserva vinculada à sua conta de cliente verificada.":"Reserva como visitante: ela não aparecerá no histórico de nenhuma conta sem vínculo autenticado."}</p>
         {checkingCustomer&&<p role="status">Validando vínculo da sua conta…</p>}
         {customerLinkError&&<p role="alert">{customerLinkError}</p>}
@@ -151,7 +161,7 @@ export function BookingPage() {
           <label>Profissional<select disabled={submitting} value={professional?.id ?? ""} onChange={(e) => { setProfessionalId(e.target.value); setSlot(""); }}>
             {eligibleProfessionals.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select></label>
-          <label>Data<input type="date" min={localCalendarDate()} disabled={submitting} value={date} onChange={(e) => { setDate(e.target.value); setSlot(""); }} /></label>
+          <label>Data<input type="date" min={studioToday} max={studioMaxDate || undefined} disabled={submitting} value={date} onChange={(e) => { setDate(e.target.value); setSlot(""); }} /></label>
           <fieldset><legend>Horário</legend>
             {slotsLoading && <p role="status">Verificando disponibilidade…</p>}
             {slotsError && <p role="alert">{slotsError}</p>}
@@ -161,7 +171,7 @@ export function BookingPage() {
           </div></fieldset>
           <label>Nome<input disabled={submitting} required minLength={2} maxLength={100} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} /></label>
           <label>Telefone<input disabled={submitting} required type="tel" inputMode="tel" autoComplete="tel" minLength={10} maxLength={22} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-          <button className="button primary" type="submit" disabled={submitting||slotsLoading||checkingCustomer||Boolean(customerLinkError)||!slot||!available.includes(slot)||date<localCalendarDate()}>
+          <button className="button primary" type="submit" disabled={submitting||slotsLoading||checkingCustomer||Boolean(customerLinkError)||!slot||!available.includes(slot)||invalidCalendarDate}>
             {submitting?"Confirmando…":"Solicitar agendamento"}
           </button>
         </form>
