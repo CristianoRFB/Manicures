@@ -106,12 +106,10 @@ test("late booking response cannot leak tenant A receipt into tenant B",async({p
   await page.getByLabel("Telefone").fill("11912345678");
   await page.getByRole("button",{name:"Solicitar agendamento"}).click();
   await expect.poll(()=>Boolean(pending)).toBe(true);
-  // SPA navigation keeps the same BookingPage component and invalidates old async state.
-  await page.evaluate(()=>{
-    window.history.pushState({}, "", "/demo-b/book");
-    window.dispatchEvent(new PopStateEvent("popstate"));
-  });
-  await expect(page).toHaveURL(/\/demo-b\/book$/);
+  // Use a real React Router link instead of manually changing browser history.
+  // The pending Worker response must not repopulate the unmounted booking form.
+  await page.getByRole("link",{name:"SaaS Manicure"}).click();
+  await expect(page.getByRole("heading",{name:"Agendamento para profissionais de unhas"})).toBeVisible();
   const submitted=pending!.request().postDataJSON() as {startsAt:string;tenantId:string;
     serviceId:string;professionalId:string};
   expect(submitted.tenantId).toBe("tenant-demo-a");
@@ -121,8 +119,9 @@ test("late booking response cannot leak tenant A receipt into tenant B",async({p
     body:JSON.stringify({appointment:{
       id:"12345678-1234-1234-1234-123456789abc",...submitted,endsAt:end,
       status:"pending",durationSnapshotMin:60,priceSnapshotCents:4000}})});
-  // Release the deliberately stalled Worker request before waiting for
-  // the second studio's Firestore resources to load.
+  // The old response is now resolved, but the visitor has already left A.
+  await expect(page.getByText("Agendamento confirmado para solicitação.")).toHaveCount(0);
+  await page.goto("/demo-b/book");
   await expect(page.getByRole("option",{name:"Pedicure B"})).toBeAttached({timeout:15000});
   await expect(page.getByLabel("Comprovante da solicitação")).toHaveCount(0);
   await expect(page.getByText("Agendamento confirmado para solicitação.")).toHaveCount(0);
