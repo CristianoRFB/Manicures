@@ -26,6 +26,7 @@ assert(pkg.scripts["qa:staging:smoke:test"]&&stagingWorkflow.includes("workflow_
 assert(stagingWorkflow.includes("sample_tenant_id")&&stagingWorkflow.includes("sample_date"),"Staging deve permitir prova opcional dos índices com fixture sintética");
 assert(pkg.scripts.test.includes("src/commercial"),"CI deve executar regras comerciais unitárias");
 assert(pkg.scripts.test.includes("src/data"),"CI deve executar testes do repositório e da API de booking");
+assert(pkg.scripts.test.includes("src/auth"),"CI deve executar testes de conta e verificação de e-mail");
 assert(api.includes("queryScopedDocuments"),"Worker deve manter consultas direcionadas por tenant");
 for(const path of ["docs/STORAGE_DELETION_RUNBOOK.md","docs/GUEST_HISTORY_LINKING.md","docs/BROWSER_QA_EVIDENCE.md"])load(path);
 const indexDefinitions=JSON.parse(load("firestore.indexes.json")).indexes ?? [];

@@ -1,13 +1,14 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { createUserWithEmailAndPassword, onAuthStateChanged, reload, sendEmailVerification, sendPasswordResetEmail, signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { getFirebaseServices } from "../lib/firebase";
+import {createAccountWithVerification} from "./customerRegistration";
 
 interface AuthContextValue {
   configured: boolean;
   loading: boolean;
   user: User | null;
   signIn: (email: string, password: string) => Promise<void>;
-  registerCustomer: (email:string,password:string) => Promise<void>;
+  registerCustomer: (email:string,password:string) => Promise<{verificationSent:boolean}>;
   sendVerificationEmail: () => Promise<void>;
   refreshVerifiedUser: () => Promise<boolean>;
   requestPasswordReset: (email:string) => Promise<void>;
@@ -44,8 +45,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     },
     registerCustomer:async(email,password)=>{
       if(!services)throw new Error("Firebase não configurado.");
-      const credentials=await createUserWithEmailAndPassword(services.auth,email.trim(),password);
-      await sendEmailVerification(credentials.user);
+      return createAccountWithVerification(
+        async()=>(await createUserWithEmailAndPassword(services.auth,email.trim(),password)).user,
+        sendEmailVerification,
+      );
     },
     sendVerificationEmail:async()=>{
       if(!services?.auth.currentUser)throw new Error("Entre em sua conta primeiro.");
