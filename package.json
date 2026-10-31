@@ -24,7 +24,9 @@
     "qa:browser": "playwright test",
     "qa:browser:auth": "playwright test --config playwright.auth.config.ts",
     "release:gate": "node scripts/release-gate.mjs",
-    "qa:browser:fail-closed": "playwright test --config playwright.fail-closed.config.ts"
+    "qa:browser:fail-closed": "playwright test --config playwright.fail-closed.config.ts",
+    "qa:staging:smoke": "node scripts/staging-smoke.mjs",
+    "qa:staging:smoke:test": "node --test scripts/staging-smoke.test.mjs"
   },
   "dependencies": {
     "firebase": "11.0.2",

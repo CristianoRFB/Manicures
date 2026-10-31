@@ -1,0 +1,30 @@
+name: Staging read-only smoke
+on:
+  workflow_dispatch:
+    inputs:
+      web_origin:
+        description: "HTTPS origin of the isolated staging frontend (no path)"
+        required: true
+        type: string
+      api_origin:
+        description: "HTTPS origin of the isolated staging Worker (no path)"
+        required: true
+        type: string
+
+jobs:
+  read-only-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node --test scripts/staging-smoke.test.mjs
+      - name: Probe staging without credentials or writes
+        run: node scripts/staging-smoke.mjs
+        env:
+          STAGING_WEB_ORIGIN: ${{ inputs.web_origin }}
+          STAGING_API_ORIGIN: ${{ inputs.api_origin }}

@@ -23,6 +23,7 @@ jobs:
       - run: npm run worker:check
       - run: npm run test:emulator
       - run: npm run docs:check
+      - run: npm run qa:staging:smoke:test
       - run: npm run release:gate
       - run: npm run build
 
