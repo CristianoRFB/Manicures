@@ -19,17 +19,52 @@ type FireValue = { stringValue?: string; integerValue?: string; booleanValue?: b
 type FireDoc = { name: string; fields?: Record<string, FireValue>; updateTime?: string };
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
+/** Appointment, customer, invitation and export responses must never be stored in shared caches. */
+const PRIVATE_HTTP_HEADERS = {
+  "cache-control": "private, no-store, max-age=0",
+  "pragma": "no-cache",
+  "x-content-type-options": "nosniff",
+  "referrer-policy": "no-referrer",
+  "vary": "Origin",
+};
 
+function allowedOrigin(env: Env): string | null {
+  const candidate = env.ALLOWED_ORIGIN?.trim();
+  if (!candidate || candidate === "*" || candidate.includes(",")) return null;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.origin !== candidate || parsed.username || parsed.password || parsed.pathname !== "/" ||
+        parsed.search || parsed.hash) return null;
+    if (parsed.protocol === "https:") return candidate;
+    // HTTP is allowed only for the explicitly isolated local Firebase emulators.
+    const localHost = ["localhost", "127.0.0.1", "[::1]"].includes(parsed.hostname);
+    const localEmulator = env.FIRESTORE_EMULATOR_HOST === "127.0.0.1:8080" &&
+      ["manicure-demo", "manicure-worker-test"].includes(env.FIREBASE_PROJECT_ID);
+    return parsed.protocol === "http:" && localHost && localEmulator ? candidate : null;
+  } catch {
+    return null;
+  }
+}
 function cors(env: Env) {
   return {
-    "access-control-allow-origin": env.ALLOWED_ORIGIN ?? "*",
+    "access-control-allow-origin": allowedOrigin(env) ?? "",
     "access-control-allow-methods": "GET,POST,OPTIONS",
     "access-control-allow-headers": "content-type,authorization",
   };
 }
+function validateRequestOrigin(request: Request, env: Env): Response | null {
+  const allowed = allowedOrigin(env);
+  if (!allowed) return new Response(JSON.stringify({error:"Origem do frontend não configurada com segurança."}),
+    {status:503,headers:{...JSON_HEADERS,...PRIVATE_HTTP_HEADERS}});
+  const incoming = request.headers.get("origin");
+  if (incoming !== null && incoming !== allowed)
+    return new Response(JSON.stringify({error:"Origem não permitida."}),
+      {status:403,headers:{...JSON_HEADERS,...PRIVATE_HTTP_HEADERS}});
+  return null;
+}
 
 function json(env: Env, body: unknown, status = 200) {
-  return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...cors(env) } });
+  return new Response(JSON.stringify(body), { status, headers: { ...JSON_HEADERS, ...PRIVATE_HTTP_HEADERS, ...cors(env) } });
 }
 
 function b64url(input: Uint8Array | string): string {
@@ -1152,7 +1187,7 @@ async function exportTenantAppointments(request:Request,env:Env):Promise<Respons
         recordCount:appointments.length,createdAt:now}),
     },currentDocument:{exists:false}}]})});
   if(!audit.ok)return json(env,{error:"Não foi possível auditar exportação; arquivo não foi entregue."},500);
-  return new Response(csv,{status:200,headers:{...cors(env),
+  return new Response(csv,{status:200,headers:{...PRIVATE_HTTP_HEADERS,...cors(env),
     "content-type":"text/csv; charset=utf-8",
     "content-disposition":`attachment; filename="manicure-${tenantId}-appointments.csv"`,
     "cache-control":"no-store",
@@ -2042,8 +2077,10 @@ async function executeApprovedMediaDeletion(request:Request,env:Env):Promise<Res
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const originError = validateRequestOrigin(request,env);
+    if (originError) return originError;
     const url = new URL(request.url);
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(env) });
+    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: { ...PRIVATE_HTTP_HEADERS,...cors(env) } });
     if (request.method === "GET" && url.pathname === "/health") return json(env, { ok: true, service: "saas-manicure-booking-api" });
     if(request.method==="POST" && url.pathname==="/api/admin/invitations/list"){
       try{return await listStaffInvitations(request,env);}
@@ -2171,7 +2208,7 @@ export default {
     }
     if (request.method === "POST" && url.pathname === "/api/bookings") {
       try { return await createBooking(request, env); }
-      catch (error) { console.error(error); return json(env, { error: error instanceof Error ? error.message : "Erro interno." }, 500); }
+      catch (error) { console.error("Booking error",error); return json(env, { error: "Falha interna ao processar reserva. Tente novamente ou contate o studio." }, 500); }
     }
     return json(env, { error: "Not found" }, 404);
   },

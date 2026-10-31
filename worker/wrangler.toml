@@ -3,7 +3,9 @@ main = "src/index.ts"
 compatibility_date = "2026-10-01"
 
 [vars]
-ALLOWED_ORIGIN = "http://localhost:5173"
+# Local default only: replace with an exact HTTPS frontend origin in staging/production.
+# The Worker rejects HTTP origin outside the loopback Firebase Emulator.
+ALLOWED_ORIGIN = "http://127.0.0.1:5173"
 
 # Secrets obrigatórios no deploy (NÃO versionar valores):
 # FIREBASE_PROJECT_ID
