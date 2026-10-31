@@ -135,7 +135,7 @@ describe("Booking Worker trusted concurrency", () => {
     let queryCalls=0;
     vi.stubGlobal("fetch",((input:RequestInfo|URL,init?:RequestInit)=>{
       const url=String(input);
-      if(/\\/(bookingLocks|scheduleBlocks)\\?/.test(url))
+      if(url.includes("/bookingLocks?") || url.includes("/scheduleBlocks?"))
         throw new Error("Regressão: listagem integral da coleção de agenda.");
       if(url.includes(":runQuery"))queryCalls+=1;
       return original(input,init);
