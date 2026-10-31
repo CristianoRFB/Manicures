@@ -17,6 +17,9 @@ Ver `docs/PRE_PC_COMPLETENESS.md`.
 - M4 Operação: convites 48h de uso único permitem novos vínculos e transições seguras de customer/professional/admin com CAS e quotas; reconciliação de staff, downgrade sem exclusão, CSV, recuperação Firebase e isolamento A×B.
 - M5 Qualidade: CI TypeScript, unitários inclusive comerciais e parser de limites, Worker, Auth/Firestore/Storage Emulator com exclusão física fictícia, Playwright real desktop/mobile com screenshots DEMO, build e docs check; `npm run test:pre-pc`.
 
+## Otimização adicional de escalabilidade
+- Consulta de disponibilidade usa `runQuery` com filtros por profissional/data para locks, e interseção de intervalo para bloqueios que atravessam dias. Requer aplicar os índices compostos versionados em `firestore.indexes.json` antes de homologar staging/produção; CI de emulador não comprova que os índices foram implantados em cloud.
+
 ## Incompleto (não afirmar pronto)
 - Reservas guest antigas: pedido autenticado, revisão independente manual do studio e vínculo CAS auditado implementados; nenhuma associação automática por telefone e nenhum dado real migrado.
 - Convites de entrega manual e transição de membros existentes implementados; transferências de tenant_owner deliberadamente proibidas, sem envio automático de e-mail.

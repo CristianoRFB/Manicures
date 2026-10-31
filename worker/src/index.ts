@@ -384,6 +384,32 @@ async function configureProfessionalHours(request:Request,env:Env):Promise<Respo
   return json(env,{ok:true,professionalId,weekday,hours,auditId});
 }
 
+/** Restricted server-side query: only the selected tenant collection and necessary
+ * professional/date rows. Historical locks must not be scanned on every availability request.
+ */
+async function queryAvailabilityDocuments(
+  env:Env,token:string,tenantId:string,collectionId:"bookingLocks"|"scheduleBlocks",
+  conditions:Array<{field:string;op:"EQUAL"|"LESS_THAN"|"GREATER_THAN";value:string}>,
+):Promise<FireDoc[]> {
+  const headers:Record<string,string>={"content-type":"application/json"};
+  if(token)headers.authorization=`Bearer ${token}`;
+  const response=await fetch(`${base(env)}/tenants/${tenantId}:runQuery`,{
+    method:"POST",headers,body:JSON.stringify({structuredQuery:{
+      from:[{collectionId}],
+      where:{compositeFilter:{op:"AND",filters:conditions.map(item=>({
+        fieldFilter:{field:{fieldPath:item.field},op:item.op,value:{stringValue:item.value}},
+      }))}},
+      limit:10001,
+    }}),
+  });
+  if(!response.ok)throw new Error(`Firestore availability query failed (${response.status}).`);
+  const entries=await response.json() as Array<{document?:FireDoc}>;
+  if(!Array.isArray(entries))throw new Error("Resposta inesperada da consulta de disponibilidade.");
+  const rows=entries.flatMap(entry=>entry.document?[entry.document]:[]);
+  if(rows.length>10000)throw new Error("Limite de verificação de disponibilidade excedido.");
+  return rows;
+}
+
 async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDoc,service:FireDoc,professional:FireDoc,date:string,excludeAppointmentId?:string) {
   if(!validDate(date)) return [] as string[];
   if (!evaluate(asTenant(tenant,tenantId),"booking.create").allowed || !bool(service,"active")
@@ -394,9 +420,19 @@ async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDo
   const ids=arr(professional,"serviceIds");
   const serviceId=service.name.split("/").pop() ?? "";
   if(!ids.includes(serviceId)) return [] as string[];
+  // A block may start on a previous day and still overlap this date.
+  // Use lexical ISO-local boundaries matching the persisted startsAt/endsAt format.
+  const nextDate=new Date(Date.parse(`${date}T12:00:00Z`)+86400_000).toISOString().slice(0,10);
   const [locks,blocks]=await Promise.all([
-    listDocuments(env,token,`tenants/${tenantId}/bookingLocks`),
-    listDocuments(env,token,`tenants/${tenantId}/scheduleBlocks`),
+    queryAvailabilityDocuments(env,token,tenantId,"bookingLocks",[
+      {field:"professionalId",op:"EQUAL",value:proId},
+      {field:"dateKey",op:"EQUAL",value:date},
+    ]),
+    queryAvailabilityDocuments(env,token,tenantId,"scheduleBlocks",[
+      {field:"professionalId",op:"EQUAL",value:proId},
+      {field:"startsAt",op:"LESS_THAN",value:`${nextDate}T00:00:00`},
+      {field:"endsAt",op:"GREATER_THAN",value:`${date}T00:00:00`},
+    ]),
   ]);
   const busy=new Set(locks.filter(lock=>str(lock,"professionalId")===proId && str(lock,"dateKey")===date && (!excludeAppointmentId || str(lock,"appointmentId")!==excludeAppointmentId)).map(lock=>int(lock,"minute")));
   const intervals=blocks.filter(block=>str(block,"professionalId")===proId && block.fields?.active?.booleanValue!==false).map(block=>({
