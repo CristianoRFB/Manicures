@@ -25,6 +25,17 @@ assert(ci.includes("npm run qa:browser:fail-closed"),"CI precisa testar que buil
 assert(pkg.scripts["qa:staging:smoke:test"]&&stagingWorkflow.includes("workflow_dispatch"),"Staging smoke deve existir apenas com ativação manual");
 assert(pkg.scripts.test.includes("src/commercial"),"CI deve executar regras comerciais unitárias");
 for(const path of ["docs/STORAGE_DELETION_RUNBOOK.md","docs/GUEST_HISTORY_LINKING.md","docs/BROWSER_QA_EVIDENCE.md"])load(path);
+const indexDefinitions=JSON.parse(load("firestore.indexes.json")).indexes ?? [];
+function requiresIndex(collection,fieldNames){
+  assert(indexDefinitions.some(row=>row.collectionGroup===collection && row.queryScope==="COLLECTION" &&
+    JSON.stringify(row.fields?.map(f=>f.fieldPath))===JSON.stringify(fieldNames)),
+    "Índice Firestore necessário ausente: "+collection+" "+fieldNames.join(","));
+}
+requiresIndex("bookingLocks",["professionalId","dateKey"]);
+requiresIndex("scheduleBlocks",["professionalId","startsAt","endsAt"]);
+requiresIndex("appointments",["professionalId","startsAt"]);
+requiresIndex("appointments",["professionalId","startsAt","endsAt"]);
+
 process.stdout.write(JSON.stringify({
   codeIntegration:"PASS",
   destructiveMediaDefault:"DISABLED",
