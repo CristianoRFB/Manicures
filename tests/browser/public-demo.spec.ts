@@ -44,7 +44,7 @@ test("booking date guard, accessible slot state and navigation skip link", async
   const dateInput=page.getByLabel("Data");
   const studioToday=await page.evaluate(()=>{const values=Object.fromEntries(new Intl.DateTimeFormat("en-US",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(p=>[p.type,p.value]));return [values.year,values.month,values.day].join("-");});
   await expect(dateInput).toHaveAttribute("min",studioToday);
-  await expect(dateInput).toHaveAttribute("max",/^\\d{4}-\\d{2}-\\d{2}$/);
+  await expect(dateInput).toHaveAttribute("max",/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
   await expect(page.getByText("Horários no fuso do studio: America/Sao_Paulo.")).toBeVisible();
   const action=page.getByRole("button",{name:"Solicitar agendamento"});
   await expect(action).toBeDisabled();
