@@ -23,7 +23,8 @@
     "test:pre-pc": "npm run typecheck && npm test && npm run worker:check && npm run test:emulator && npm run docs:check && npm run build",
     "qa:browser": "playwright test",
     "qa:browser:auth": "playwright test --config playwright.auth.config.ts",
-    "release:gate": "node scripts/release-gate.mjs"
+    "release:gate": "node scripts/release-gate.mjs",
+    "qa:browser:fail-closed": "playwright test --config playwright.fail-closed.config.ts"
   },
   "dependencies": {
     "firebase": "11.0.2",

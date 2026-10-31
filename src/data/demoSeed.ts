@@ -1,11 +1,6 @@
 import type { Appointment, Professional, Service, Tenant } from "../domain/types";
 import { addMinutes } from "../domain/availability";
-
-function tomorrow(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
+import { studioCalendarDate } from "../domain/localCalendarDate";
 
 export const demoTenant: Tenant = {
   id: "tenant-demo-a",
@@ -42,7 +37,7 @@ export const demoProfessionals: Professional[] = [
   { id: "professional-demo-b1", tenantId: demoTenantB.id, name: "Profissional Demo B1", active: true, serviceIds: ["pedicure-b"] },
 ];
 
-const date = tomorrow();
+const date = studioCalendarDate("America/Sao_Paulo",1);
 export const demoAppointments: Appointment[] = [
   {
     id: "appointment-demo-a1", tenantId: demoTenant.id, customerName: "Cliente Demonstração", customerPhone: "00000000000",

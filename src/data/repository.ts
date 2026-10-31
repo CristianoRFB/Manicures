@@ -1,5 +1,5 @@
 import type { Appointment, AuditLog, Membership, Professional, Service, ScheduleBlock, Tenant } from "../domain/types";
-import { demoModeEnabled, firebaseConfigured } from "../lib/firebase";
+import { demoModeEnabled } from "../lib/firebase";
 import { demoAppointments, demoProfessionals, demoServices, demoTenant, demoTenantB } from "./demoSeed";
 import { FirestoreRepository } from "./firestoreRepository";
 
@@ -53,9 +53,12 @@ export class DemoRepository implements Repository {
   async recordAuditLog() { /* demo local não é evidência de auditoria real */ }
 }
 
-function createRepository(): Repository {
-  if (firebaseConfigured() && !demoModeEnabled()) return new FirestoreRepository();
-  return new DemoRepository();
+/** Explicit demo mode is the only path to synthetic studio data.
+ * With missing Firebase configuration, real repositories fail closed instead of silently
+ * rendering demo tenants as if they belonged to a live studio.
+ */
+export function selectRepository(demoMode: boolean): Repository {
+  return demoMode ? new DemoRepository() : new FirestoreRepository();
 }
 
-export const repository: Repository = createRepository();
+export const repository: Repository = selectRepository(demoModeEnabled());

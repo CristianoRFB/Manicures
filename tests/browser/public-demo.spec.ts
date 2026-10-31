@@ -42,8 +42,10 @@ test("booking date guard, accessible slot state and navigation skip link", async
   await expect(page.locator("main#main-content")).toHaveCount(1);
   await expect(page.getByRole("link",{name:"Ir para o conteúdo"})).toHaveAttribute("href","#main-content");
   const dateInput=page.getByLabel("Data");
-  const localToday=await page.evaluate(()=>{const d=new Date();return [d.getFullYear(),String(d.getMonth()+1).padStart(2,"0"),String(d.getDate()).padStart(2,"0")].join("-");});
-  await expect(dateInput).toHaveAttribute("min",localToday);
+  const studioToday=await page.evaluate(()=>{const values=Object.fromEntries(new Intl.DateTimeFormat("en-US",{timeZone:"America/Sao_Paulo",year:"numeric",month:"2-digit",day:"2-digit"}).formatToParts(new Date()).map(p=>[p.type,p.value]));return [values.year,values.month,values.day].join("-");});
+  await expect(dateInput).toHaveAttribute("min",studioToday);
+  await expect(dateInput).toHaveAttribute("max",/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/);
+  await expect(page.getByText("Horários no fuso do studio: America/Sao_Paulo.")).toBeVisible();
   const action=page.getByRole("button",{name:"Solicitar agendamento"});
   await expect(action).toBeDisabled();
   const firstSlot=page.getByRole("button",{name:/Selecionar horário/}).first();
@@ -52,6 +54,7 @@ test("booking date guard, accessible slot state and navigation skip link", async
   await expect(firstSlot).toHaveAttribute("aria-pressed","true");
   await expect(action).toBeEnabled();
   await dateInput.fill("2099-01-02");
+  await expect(page.getByRole("alert")).toContainText("ultrapassa o prazo de agendamento");
   await expect(action).toBeDisabled();
   await expect(page.locator("button.slot[aria-pressed='true']")).toHaveCount(0);
   await dateInput.fill("2020-01-01");
