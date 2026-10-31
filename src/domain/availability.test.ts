@@ -8,8 +8,8 @@ const professional: Professional = { id: "p", tenantId: "t", name: "Profissional
 describe("availability", () => {
   it("applies professional weekly hours, closed days and breaks like the Worker",()=>{
     const own:Professional={...professional,weeklyHours:{
-      "2":{closed:false,startMinute:600,endMinute:900,breakStartMinute:720,breakEndMinute:780},
-      "3":{closed:true,startMinute:600,endMinute:900,breakStartMinute:720,breakEndMinute:780},
+      "3":{closed:false,startMinute:600,endMinute:900,breakStartMinute:720,breakEndMinute:780},
+      "4":{closed:true,startMinute:600,endMinute:900,breakStartMinute:720,breakEndMinute:780},
     }};
     const wednesday=createSlots("2026-11-04",service,own,[]);
     expect(wednesday[0]).toBe("2026-11-04T10:00:00");
@@ -18,11 +18,12 @@ describe("availability", () => {
     expect(wednesday).not.toContain("2026-11-04T09:00:00");
     expect(wednesday).not.toContain("2026-11-04T15:00:00");
     expect(createSlots("2026-11-05",service,own,[])).toEqual([]);
+    // 2026-11-04 is Wednesday (3), 2026-11-05 is Thursday (4).
   });
 
   it("rejects invalid schedules, duration and cross-tenant references",()=>{
     const broken:Professional={...professional,weeklyHours:{
-      "2":{closed:false,startMinute:1300,endMinute:1200,breakStartMinute:1100,breakEndMinute:1150},
+      "3":{closed:false,startMinute:1300,endMinute:1200,breakStartMinute:1100,breakEndMinute:1150},
     }};
     expect(createSlots("2026-11-04",service,broken,[])).toEqual([]);
     expect(createSlots("2026-11-04",{...service,durationMin:0},professional,[])).toEqual([]);
