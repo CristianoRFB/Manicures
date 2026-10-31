@@ -9,8 +9,9 @@ function dbOrThrow() {
   return services.db;
 }
 
-function withId<T>(id: string, data: unknown): T {
-  return { id, ...(data as object) } as T;
+/** Firestore document path is authoritative. A legacy `id` field must never override it. */
+export function withId<T>(id: string, data: unknown): T {
+  return { ...(data as object), id } as T;
 }
 
 export class FirestoreRepository implements Repository {
