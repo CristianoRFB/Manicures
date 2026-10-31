@@ -10,7 +10,7 @@ interface CreateBookingInput {
   authToken?: string;
 }
 
-const SLOT_PATTERN = /^\\d{4}-\\d{2}-\\d{2}T(?:[01]\\d|2[0-3]):[0-5]\\d:00$/;
+const SLOT_PATTERN = /^\d{4}-\d{2}-\d{2}T(?:[01]\d|2[0-3]):[0-5]\d:00$/;
 
 function apiError(body: unknown, fallback: string): string {
   if (body !== null && typeof body === "object" && "error" in body) {
@@ -60,7 +60,7 @@ export function parseBookingReceipt(body: unknown, input: CreateBookingInput): A
 export async function createProtectedBooking(input: CreateBookingInput): Promise<Appointment> {
   const baseUrl = import.meta.env.VITE_BOOKING_API_BASE_URL;
   if (!baseUrl) throw new Error("Booking API não configurada.");
-  const response = await fetch(`${baseUrl.replace(/\\/$/, "")}/api/bookings`, {
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/bookings`, {
     method: "POST",
     headers: { "content-type": "application/json", ...(input.authToken?{authorization:`Bearer ${input.authToken}`}:{}) },
     body: JSON.stringify({
@@ -81,7 +81,7 @@ export async function getProtectedAvailability(params:{tenantId:string;serviceId
   const base=import.meta.env.VITE_BOOKING_API_BASE_URL;
   if(!base)throw new Error("Booking API não configurada.");
   const query=new URLSearchParams(params);
-  const response=await fetch(`${base.replace(/\\$/,"")}/api/availability?${query.toString()}`);
+  const response=await fetch(`${base.replace(/\/$/,"")}/api/availability?${query.toString()}`);
   const data:unknown=await response.json().catch(()=>null);
   if(!response.ok)throw new Error(apiError(data,"Não foi possível obter horários disponíveis."));
   return parseAvailableSlots(data,params.date);
