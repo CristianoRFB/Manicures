@@ -7,7 +7,7 @@ export function requireHttpsOrigin(value, label) {
   try { url = new URL(value); } catch { throw new Error(label + " deve ser uma origem HTTPS válida."); }
   if (url.protocol !== "https:" || value !== url.origin || url.username || url.password ||
       url.hostname === "localhost" || !url.hostname.includes(".") ||
-      /^\\d+\\.\\d+\\.\\d+\\.\\d+$/.test(url.hostname) ||
+      /^[0-9]{1,3}(?:[.][0-9]{1,3}){3}$/.test(url.hostname) ||
       url.hostname.endsWith(".local"))
     throw new Error(label + " deve ser origem HTTPS pública exata, sem path, query ou credenciais.");
   return url.origin;
