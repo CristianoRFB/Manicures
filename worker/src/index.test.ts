@@ -65,6 +65,57 @@ beforeEach(async () => {
   await seed();
 });
 
+
+describe("Worker privacy and CORS safeguards",()=>{
+  const health=(origin?:string,override:Record<string,string>={})=>worker.fetch(
+    new Request("http://worker.local/health",origin?{headers:{origin}}:undefined),
+    {...env(),...override});
+  it("returns strict origin, no-store and response hardening for authorized requests",async()=>{
+    const response=await health("http://localhost:5173");
+    expect(response.status).toBe(200);
+    expect(response.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+    expect(response.headers.get("cache-control")).toContain("no-store");
+    expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(response.headers.get("vary")).toContain("Origin");
+    const preflight=await worker.fetch(new Request("http://worker.local/api/bookings",{
+      method:"OPTIONS",headers:{origin:"http://localhost:5173","access-control-request-method":"POST"},
+    }),env());
+    expect(preflight.status).toBe(204);
+    expect(preflight.headers.get("access-control-allow-origin")).toBe("http://localhost:5173");
+  });
+  it("rejects any foreign browser origin before booking writes and discloses no CORS grant",async()=>{
+    const request=new Request("http://worker.local/api/bookings",{
+      method:"POST",headers:{"content-type":"application/json",origin:"https://attacker.example"},
+      body:JSON.stringify({tenantId:"a",serviceId:"s1",professionalId:"p1",
+        startsAt:"2026-11-03T14:00:00",customerName:"Pessoa Teste",customerPhone:"11912345678"}),
+    });
+    const response=await worker.fetch(request,env());
+    expect(response.status).toBe(403);
+    expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    const docs=await getFirestore(adminApp).collection("tenants/a/appointments").get();
+    expect(docs.size).toBe(0);
+    const badPreflight=await worker.fetch(new Request("http://worker.local/api/bookings",{
+      method:"OPTIONS",headers:{origin:"https://attacker.example"},
+    }),env());
+    expect(badPreflight.status).toBe(403);
+  });
+  it("fails closed when origin is omitted, wildcard or insecure outside isolated local emulator",async()=>{
+    for(const origin of ["","*","https://studio.example.com/extra"]){
+      const response=await health(undefined,{ALLOWED_ORIGIN:origin});
+      expect(response.status).toBe(503);
+      expect(response.headers.get("access-control-allow-origin")).toBeNull();
+    }
+    const prod=await health(undefined,{ALLOWED_ORIGIN:"http://localhost:5173",
+      FIRESTORE_EMULATOR_HOST:"cloud.firestore.example"});
+    expect(prod.status).toBe(503);
+    const validHttps=await health("https://studio.example.com",{ALLOWED_ORIGIN:"https://studio.example.com",
+      FIRESTORE_EMULATOR_HOST:"cloud.firestore.example"});
+    expect(validHttps.status).toBe(200);
+    expect(validHttps.headers.get("access-control-allow-origin")).toBe("https://studio.example.com");
+  });
+});
+
 describe("Booking Worker trusted concurrency", () => {
   it("cria appointment com snapshots vindos do serviço", async () => {
     const response = await book("a", "2026-11-03T14:00:00");

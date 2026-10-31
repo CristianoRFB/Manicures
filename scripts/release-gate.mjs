@@ -12,6 +12,9 @@ const pkg=JSON.parse(load("package.json"));
 assert(!/^\s*MEDIA_DELETION_ENABLED\s*=\s*["']?true\b/im.test(wrangler),"Não habilitar exclusão em configuração versionada");
 assert(/^MEDIA_DELETION_ENABLED=false$/m.test(local),"Emulator local deve manter exclusão desabilitada");
 assert(api.includes('env.MEDIA_DELETION_ENABLED!=="true"'),"Worker deve exigir opt-in explícito de exclusão");
+assert(api.includes("validateRequestOrigin(request,env)")&&api.includes("PRIVATE_HTTP_HEADERS"),"Worker deve aplicar origem autorizada e no-store em respostas sensíveis");
+assert(!/^ALLOWED_ORIGIN\s*=\s*["']?\*["']?\s*$/m.test(wrangler),"CORS wildcard proibido em configuração versionada");
+
 assert(storage.includes("allow update, delete: if false;"),"Storage deve negar mutação destrutiva por SDK");
 assert(storage.includes("resource == null"),"Storage deve proteger contra overwrite");
 assert(firestore.includes("match /guestClaims/{claimId}"),"Conciliação guest deve ser Worker-only");

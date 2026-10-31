@@ -5,7 +5,7 @@ FIREBASE_CLIENT_EMAIL=none@local.invalid
 FIREBASE_PRIVATE_KEY=NOT_USED_IN_EMULATOR
 FIRESTORE_EMULATOR_HOST=127.0.0.1:8080
 FIREBASE_AUTH_EMULATOR_HOST=127.0.0.1:9099
-ALLOWED_ORIGIN=http://localhost:5173
+ALLOWED_ORIGIN=http://127.0.0.1:5173
 
 # Optional Storage emulation for inventory; keep physical deletion OFF.
 FIREBASE_STORAGE_BUCKET=manicure-demo.appspot.com
