@@ -117,6 +117,20 @@ describe("Worker privacy and CORS safeguards",()=>{
 });
 
 describe("Booking Worker trusted concurrency", () => {
+  it("persists next-day midnight end instead of invalid 24:00",async()=>{
+    const db=getFirestore(adminApp);
+    await db.doc("tenants/a/professionals/p1").update({weeklyHours:{
+      "2":{closed:false,startMinute:1320,endMinute:1440,
+        breakStartMinute:1320,breakEndMinute:1320},
+    }});
+    await db.doc("tenants/a/services/s1").update({durationMin:120});
+    const booked=await book("a","2026-11-03T22:00:00");
+    expect(booked.status).toBe(201);
+    const data=await booked.json() as {appointment:{endsAt:string}};
+    expect(data.appointment.endsAt).toBe("2026-11-04T00:00:00");
+    const saved=await db.collection("tenants/a/appointments").get();
+    expect(saved.docs[0].data().endsAt).toBe("2026-11-04T00:00:00");
+  });
   it("consulta somente bloqueios de profissional e data sem varrer todas as coleções",async()=>{
     const db=getFirestore(adminApp);
     await Promise.all([

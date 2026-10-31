@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { createSlots } from "./availability";
+import { addMinutes, createSlots } from "./availability";
 import type { Appointment, Professional, Service } from "./types";
 
 const service: Service = { id: "s", tenantId: "t", name: "Serviço", description: "", priceCents: 1000, durationMin: 60, active: true };
 const professional: Professional = { id: "p", tenantId: "t", name: "Profissional", active: true, serviceIds: ["s"] };
 
 describe("availability", () => {
+  it("normalizes midnight across calendar days and leap years",()=>{
+    expect(addMinutes("2026-11-03T22:00:00",120)).toBe("2026-11-04T00:00:00");
+    expect(addMinutes("2028-02-29T23:30:00",60)).toBe("2028-03-01T00:30:00");
+  });
   it("remove almoço e conflito ativo", () => {
     const appointments: Appointment[] = [{
       id: "a", tenantId: "t", customerName: "X", customerPhone: "0", professionalId: "p", serviceId: "s",

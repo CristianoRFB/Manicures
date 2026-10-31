@@ -25,6 +25,8 @@ Ver `docs/PRE_PC_COMPLETENESS.md`.
 ## Validação de instantes reais no agendamento
 - Novo cálculo de antecedência, horizonte e duração com horário real no fuso do studio. Horas inexistentes ou ambíguas em transições DST não são aceitas silenciosamente; datas impossíveis e fusos inválidos são rejeitados. Homologação externa segue pendente.
 
+- Horários que terminam exatamente à meia-noite são persistidos com a data seguinte às 00:00, evitando representação inválida T24:00 no Worker e no domínio de demonstração.
+
 ## Incompleto (não afirmar pronto)
 - Reservas guest antigas: pedido autenticado, revisão independente manual do studio e vínculo CAS auditado implementados; nenhuma associação automática por telefone e nenhum dado real migrado.
 - Convites de entrega manual e transição de membros existentes implementados; transferências de tenant_owner deliberadamente proibidas, sem envio automático de e-mail.

@@ -245,10 +245,8 @@ function fields(record: Record<string, unknown>) {
 
 function addMinutes(iso: string, minutes: number): string {
   const { dateKey, startMinute } = localParts(iso);
-  const total = startMinute + minutes;
-  const hh = String(Math.floor(total / 60)).padStart(2, "0");
-  const mm = String(total % 60).padStart(2, "0");
-  return `${dateKey}T${hh}:${mm}:00`;
+  const atMidnight=Date.parse(`${dateKey}T00:00:00Z`);
+  return new Date(atMidnight+(startMinute+minutes)*60000).toISOString().slice(0,19);
 }
 
 function lockMinutes(startMinute: number, endMinute: number): number[] {
