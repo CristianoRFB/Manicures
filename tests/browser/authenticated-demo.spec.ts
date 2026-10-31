@@ -33,3 +33,26 @@ test("platform owner sees tenant inventory and settings but does not change prod
   await expect(page.getByRole("heading",{name:"Atribuição manual de plano"})).toBeVisible();
   await page.screenshot({path:join(folder,info.project.name+"-platform.png"),fullPage:true});
 });
+
+test("invalid Firebase login never exposes raw SDK errors to studio owners",async({page})=>{
+  await page.goto("/app/demo");
+  await expect(page.getByRole("heading",{name:"Painel do tenant"})).toBeVisible();
+  await page.getByLabel("E-mail").fill("owner-a@example.test");
+  await page.getByLabel("Senha").fill("senha-incorreta-123");
+  await page.getByRole("button",{name:"Entrar",exact:true}).click();
+  await expect(page.getByRole("alert")).toContainText("Não foi possível entrar.");
+  await expect(page.getByRole("alert")).not.toContainText("Firebase");
+  await expect(page.getByRole("alert")).not.toContainText("auth/");
+  await expect(page.getByRole("button",{name:"Entrar",exact:true})).toBeEnabled();
+});
+
+test("customer invalid login stays private and does not identify an account",async({page})=>{
+  await page.goto("/customer/demo");
+  await expect(page.getByRole("heading",{name:/Minha agenda/})).toBeVisible();
+  await page.getByLabel("E-mail").fill("owner-a@example.test");
+  await page.getByLabel("Senha").fill("senha-incorreta-123");
+  await page.getByRole("button",{name:"Entrar",exact:true}).click();
+  await expect(page.getByRole("alert")).toContainText("Não foi possível entrar.");
+  await expect(page.getByRole("alert")).not.toContainText("Firebase");
+  await expect(page.getByRole("button",{name:"Entrar",exact:true})).toBeEnabled();
+});

@@ -1,6 +1,7 @@
 import {useEffect,useState,type FormEvent} from "react";
 import {Link,useParams} from "react-router-dom";
 import {useAuth} from "../auth/AuthProvider";
+import {publicAuthError} from "../lib/authError";
 import {repository} from "../data/repository";
 import {LoginPanel} from "../components/LoginPanel";
 import {TenantTheme} from "../components/TenantTheme";
@@ -61,13 +62,19 @@ export function StaffInvitePage(){
         <p>Somente contas com endereço confirmado podem aceitar convites de equipe.</p>
         <div className="row">
           <button className="button" disabled={working} onClick={()=>void (async()=>{
+            if(working)return;
+            setWorking(true);setError("");setMessage("");
             try{const result=await refreshVerifiedUser();setVerified(result);
               setMessage(result?"E-mail confirmado.":"Ainda aguardando confirmação.");
-            }catch(err){setError(err instanceof Error?err.message:"Erro ao atualizar conta.");}
+            }catch(err){setError(publicAuthError(err,"verify"));}
+            finally{setWorking(false);}
           })()}>Verificar confirmação</button>
           <button className="button" disabled={working} onClick={()=>void (async()=>{
+            if(working)return;
+            setWorking(true);setError("");setMessage("");
             try{await sendVerificationEmail();setMessage("E-mail de verificação solicitado.");}
-            catch(err){setError(err instanceof Error?err.message:"Falha ao reenviar.");}
+            catch(err){setError(publicAuthError(err,"verify"));}
+            finally{setWorking(false);}
           })()}>Reenviar e-mail</button>
         </div>
       </section>:acceptedRole?<section className="card">
