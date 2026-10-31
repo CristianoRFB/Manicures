@@ -10,6 +10,22 @@ on:
         description: "HTTPS origin of the isolated staging Worker (no path)"
         required: true
         type: string
+      sample_tenant_id:
+        description: "Optional synthetic staging tenant ID for Firestore index probe"
+        required: false
+        type: string
+      sample_service_id:
+        description: "Optional active service ID from synthetic staging tenant"
+        required: false
+        type: string
+      sample_professional_id:
+        description: "Optional active professional ID in synthetic staging tenant"
+        required: false
+        type: string
+      sample_date:
+        description: "Optional YYYY-MM-DD with at least one free synthetic studio slot"
+        required: false
+        type: string
 
 jobs:
   read-only-smoke:
@@ -28,3 +44,7 @@ jobs:
         env:
           STAGING_WEB_ORIGIN: ${{ inputs.web_origin }}
           STAGING_API_ORIGIN: ${{ inputs.api_origin }}
+          STAGING_SAMPLE_TENANT_ID: ${{ inputs.sample_tenant_id }}
+          STAGING_SAMPLE_SERVICE_ID: ${{ inputs.sample_service_id }}
+          STAGING_SAMPLE_PROFESSIONAL_ID: ${{ inputs.sample_professional_id }}
+          STAGING_SAMPLE_DATE: ${{ inputs.sample_date }}
