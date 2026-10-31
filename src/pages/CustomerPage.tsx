@@ -67,8 +67,10 @@ export function CustomerPage(){
     setError("");setFeedback("");setWorking(true);
     try{
       if(createAccount){
-        await registerCustomer(email,password);
-        setFeedback("Conta criada. Confirme o e-mail recebido e depois clique em 'Verificar e-mail'.");
+        const result=await registerCustomer(email,password);
+        setFeedback(result.verificationSent
+          ? "Conta criada. Confirme o e-mail recebido e depois clique em 'Verificar e-mail'."
+          : "Conta criada, mas não foi possível enviar a verificação. Use 'Reenviar verificação' na sua conta.");
       }else{
         await signIn(email,password);
         setFeedback("Login realizado.");
