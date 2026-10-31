@@ -117,6 +117,53 @@ describe("Worker privacy and CORS safeguards",()=>{
 });
 
 describe("Booking Worker trusted concurrency", () => {
+  it("consulta somente bloqueios de profissional e data sem varrer todas as coleções",async()=>{
+    const db=getFirestore(adminApp);
+    await Promise.all([
+      db.doc("tenants/a/bookingLocks/old-2020").set({
+        tenantId:"a",professionalId:"p1",dateKey:"2020-01-01",minute:840,appointmentId:"old"}),
+      db.doc("tenants/a/bookingLocks/other-pro").set({
+        tenantId:"a",professionalId:"p2",dateKey:"2026-11-03",minute:840,appointmentId:"other"}),
+      db.doc("tenants/a/scheduleBlocks/other-day").set({
+        tenantId:"a",professionalId:"p1",startsAt:"2025-11-01T00:00:00",
+        endsAt:"2025-11-02T00:00:00",active:true}),
+      db.doc("tenants/a/scheduleBlocks/other-pro").set({
+        tenantId:"a",professionalId:"p2",startsAt:"2026-11-03T14:00:00",
+        endsAt:"2026-11-03T15:00:00",active:true}),
+    ]);
+    const original=globalThis.fetch;
+    let queryCalls=0;
+    vi.stubGlobal("fetch",((input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input);
+      if(/\\/(bookingLocks|scheduleBlocks)\\?/.test(url))
+        throw new Error("Regressão: listagem integral da coleção de agenda.");
+      if(url.includes(":runQuery"))queryCalls+=1;
+      return original(input,init);
+    }) as typeof fetch);
+    try{
+      const availability=await worker.fetch(new Request(
+        "http://worker.local/api/availability?tenantId=a&serviceId=s1&professionalId=p1&date=2026-11-03"
+      ),env());
+      expect(availability.status).toBe(200);
+      const payload=await availability.json() as {slots:string[]};
+      expect(payload.slots).toContain("2026-11-03T14:00:00");
+      expect(queryCalls).toBe(2);
+    }finally{vi.unstubAllGlobals();}
+  });
+  it("bloqueios que atravessam meia-noite entram na consulta por sobreposição",async()=>{
+    await getFirestore(adminApp).doc("tenants/a/scheduleBlocks/overnight").set({
+      tenantId:"a",professionalId:"p1",startsAt:"2026-11-02T23:00:00",
+      endsAt:"2026-11-03T14:30:00",reason:"Manutenção",active:true,
+    });
+    const response=await worker.fetch(new Request(
+      "http://worker.local/api/availability?tenantId=a&serviceId=s1&professionalId=p1&date=2026-11-03"
+    ),env());
+    expect(response.status).toBe(200);
+    const body=await response.json() as {slots:string[]};
+    expect(body.slots).not.toContain("2026-11-03T14:00:00");
+    expect(body.slots).toContain("2026-11-03T15:00:00");
+    expect((await book("a","2026-11-03T14:00:00")).status).toBe(409);
+  });
   it("cria appointment com snapshots vindos do serviço", async () => {
     const response = await book("a", "2026-11-03T14:00:00");
     expect(response.status).toBe(201);
