@@ -5,6 +5,7 @@ import {repository} from "../data/repository";
 import {LoginPanel} from "../components/LoginPanel";
 import {TenantTheme} from "../components/TenantTheme";
 import type {Appointment,Membership,Tenant} from "../domain/types";
+import {applyConfirmedAppointmentStatus} from "../domain/appointmentStatus";
 
 const actions:Partial<Record<Appointment["status"],Array<{name:string;status:Appointment["status"]}>>> = {
   pending:[{name:"Confirmar",status:"confirmed"},{name:"Cancelar",status:"cancelled"}],
@@ -59,10 +60,16 @@ export function ProfessionalPage(){
       });
       const body=await response.json() as {error?:string};
       if(!response.ok)throw new Error(body.error??"Ação não permitida.");
-      const rows=await repository.listAppointmentsForProfessional(tenant.id,member.professionalId!);
-      setAppointments(rows);
+      // The API write succeeded. A later read failure cannot undo that success.
+      setAppointments(rows=>applyConfirmedAppointmentStatus(rows,appointment.id,status));
       setFeedback("Atendimento atualizado.");
-    }catch(err){setError(err instanceof Error?err.message:"Falha ao atualizar.");}
+      try {
+        const rows=await repository.listAppointmentsForProfessional(tenant.id,member.professionalId!);
+        setAppointments(rows);
+      }catch{
+        setFeedback("Atualização confirmada. Não foi possível atualizar a lista completa; recarregue a página para conferir.");
+      }
+    }catch(err){setError(err instanceof Error?err.message:"Não foi possível confirmar a alteração.");}
     finally{setSaving(false);}
   }
   if(loading||pending)return <section className="page" role="status">Validando agenda profissional…</section>;
