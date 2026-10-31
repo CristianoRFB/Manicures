@@ -68,7 +68,7 @@ export function BookingPage() {
     }).catch(()=>{if(live)setCustomerLinkError("Não foi possível verificar o vínculo da sua conta. Reabra a área do cliente.");})
       .finally(()=>{if(live)setCheckingCustomer(false);});
     return()=>{live=false;};
-  },[tenant?.id,user?.uid]);
+  },[tenant?.id,user?.uid,user?.emailVerified]);
 
   const timezone = tenant?.businessSettings?.timezone || "America/Sao_Paulo";
   const studioToday = tenant ? studioCalendarDate(timezone) : localCalendarDate();
@@ -150,7 +150,7 @@ export function BookingPage() {
         {tenant.kind === "demo" && <div className="badge">DEMONSTRAÇÃO</div>}
         <h1>Novo agendamento</h1>
         <p className="subtle">Horários no fuso do studio: {timezone}.</p>
-        <p>{linkedCustomer?"Reserva vinculada à sua conta de cliente verificada.":"Reserva como visitante: ela não aparecerá no histórico de nenhuma conta sem vínculo autenticado."}</p>
+        <p>{checkingCustomer?"Verificando o vínculo da sua conta antes do agendamento.":linkedCustomer?"Reserva vinculada à sua conta de cliente verificada.":"Reserva como visitante: ela não aparecerá no histórico de nenhuma conta sem vínculo autenticado."}</p>
         {checkingCustomer&&<p role="status">Validando vínculo da sua conta…</p>}
         {customerLinkError&&<p role="alert">{customerLinkError}</p>}
         <Link to={`/customer/${tenant.slug}`}>Entrar, cadastrar ou ver meus horários</Link>

@@ -56,3 +56,35 @@ test("customer invalid login stays private and does not identify an account",asy
   await expect(page.getByRole("alert")).not.toContainText("Firebase");
   await expect(page.getByRole("button",{name:"Entrar",exact:true})).toBeEnabled();
 });
+
+test("verified customer is recognized as linked after account confirmation",async({page},info)=>{
+  const {initializeApp,deleteApp}=await import("firebase-admin/app");
+  const {getAuth}=await import("firebase-admin/auth");
+  const {getFirestore}=await import("firebase-admin/firestore");
+  const key=info.project.name.replace(/[^a-zA-Z0-9-]/g,"-");
+  const uid="verified-customer-"+key;
+  const email="verified-customer-"+key+"@example.test";
+  const app=initializeApp({projectId:"manicure-demo"},"customer-confirmation-"+key);
+  const auth=getAuth(app),db=getFirestore(app);
+  try {
+    await auth.createUser({uid,email,password:"Demo123!Demo123!",emailVerified:false});
+    await db.doc("memberships/tenant-demo-a_"+uid).set({
+      tenantId:"tenant-demo-a",userId:uid,role:"customer",
+      customerId:uid,status:"active",
+    });
+    await page.goto("/customer/demo");
+    await expect(page.getByRole("heading",{name:/Minha agenda/})).toBeVisible();
+    await logIn(page,email);
+    await expect(page.getByRole("heading",{name:"Confirme seu e-mail"})).toBeVisible();
+    await auth.updateUser(uid,{emailVerified:true});
+    await page.getByRole("button",{name:"Verificar e-mail"}).click();
+    await expect(page.getByText("E-mail confirmado.")).toBeVisible();
+    await expect(page.getByRole("heading",{name:"Meus agendamentos"})).toBeVisible();
+    await page.goto("/demo/book");
+    await expect(page.getByText("Reserva vinculada à sua conta de cliente verificada.")).toBeVisible();
+  }finally{
+    await db.doc("memberships/tenant-demo-a_"+uid).delete().catch(()=>{});
+    await auth.deleteUser(uid).catch(()=>{});
+    await deleteApp(app);
+  }
+});

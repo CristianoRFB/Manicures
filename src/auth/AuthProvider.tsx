@@ -20,6 +20,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const services = getFirebaseServices();
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(Boolean(services));
+  const [verificationRevision,setVerificationRevision]=useState(0);
 
   useEffect(() => {
     if (!services) {
@@ -55,6 +56,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await reload(services.auth.currentUser);
       await services.auth.currentUser.getIdToken(true);
       setUser(services.auth.currentUser);
+      // Firebase reload mutates the existing User object; a fresh render is required
+      // so consumers can react to the updated emailVerified value.
+      setVerificationRevision(current=>current+1);
       return services.auth.currentUser.emailVerified;
     },
     requestPasswordReset:async(email)=>{
@@ -67,7 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!services) return;
       await signOut(services.auth);
     },
-  }), [services, loading, user]);
+  }), [services, loading, user, verificationRevision]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
