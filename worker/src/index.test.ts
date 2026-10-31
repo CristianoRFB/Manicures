@@ -881,6 +881,29 @@ describe("Trusted commercial and professional writes",()=>{
     expect(response.status).toBe(200);
     return (await response.json() as {slots:string[]}).slots;
   }
+  it("valida quatro operações sobre reservas futuras sem varrer histórico inteiro",async()=>{
+    const booked=await book("a","2026-11-03T14:00:00");
+    expect(booked.status).toBe(201);
+    const original=globalThis.fetch;
+    let targeted=0;
+    vi.stubGlobal("fetch",((input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input);
+      if(url.includes("/appointments?"))
+        throw new Error("Regressão: listagem integral de agendamentos na operação.");
+      if(url.includes(":runQuery") && init?.body && String(init.body).includes('"collectionId":"appointments"'))
+        targeted+=1;
+      return original(input,init);
+    }) as typeof fetch);
+    try {
+      expect((await configureHours("ownerA",2,{closed:true})).status).toBe(409);
+      expect((await activateProfessional("a","ownerA","p1",false)).status).toBe(409);
+      expect((await editPro("ownerA",{serviceIds:[]})).status).toBe(409);
+      expect((await createBlock("ownerA",{
+        startsAt:"2026-11-03T13:30:00",endsAt:"2026-11-03T14:30:00",
+      })).status).toBe(409);
+      expect(targeted).toBe(4);
+    }finally{vi.stubGlobal("fetch",original);}
+  });
   it("expediente customizado filtra slots e revalida reserva no servidor",async()=>{
     expect((await configureHours("ownerA",2)).status).toBe(200);
     const slots=await available();

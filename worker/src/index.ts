@@ -329,7 +329,10 @@ async function configureProfessionalHours(request:Request,env:Env):Promise<Respo
   if(!tenant||str(tenant,"status")!=="active"||!professional||!professional.updateTime)
     return json(env,{error:"Tenant ou profissional indisponível."},404);
   const dateToday=zonedNowString(settings(tenant).timezone).slice(0,10);
-  const allAppointments=await listDocuments(env,token,`tenants/${tenantId}/appointments`);
+  const allAppointments=await queryScopedDocuments(env,token,tenantId,"appointments",[
+    {field:"professionalId",op:"EQUAL",value:professionalId},
+    {field:"startsAt",op:"GREATER_THAN_OR_EQUAL",value:`${dateToday}T00:00:00`},
+  ]);
   for(const appointment of allAppointments){
     const start=str(appointment,"startsAt"),end=str(appointment,"endsAt");
     if(str(appointment,"professionalId")!==professionalId||start.slice(0,10)<dateToday ||
@@ -387,9 +390,9 @@ async function configureProfessionalHours(request:Request,env:Env):Promise<Respo
 /** Restricted server-side query: only the selected tenant collection and necessary
  * professional/date rows. Historical locks must not be scanned on every availability request.
  */
-async function queryAvailabilityDocuments(
-  env:Env,token:string,tenantId:string,collectionId:"bookingLocks"|"scheduleBlocks",
-  conditions:Array<{field:string;op:"EQUAL"|"LESS_THAN"|"GREATER_THAN";value:string}>,
+async function queryScopedDocuments(
+  env:Env,token:string,tenantId:string,collectionId:"bookingLocks"|"scheduleBlocks"|"appointments",
+  conditions:Array<{field:string;op:"EQUAL"|"LESS_THAN"|"GREATER_THAN"|"GREATER_THAN_OR_EQUAL";value:string}>,
 ):Promise<FireDoc[]> {
   const headers:Record<string,string>={"content-type":"application/json"};
   if(token)headers.authorization=`Bearer ${token}`;
@@ -424,11 +427,11 @@ async function availableSlots(env:Env,token:string,tenantId:string,tenant:FireDo
   // Use lexical ISO-local boundaries matching the persisted startsAt/endsAt format.
   const nextDate=new Date(Date.parse(`${date}T12:00:00Z`)+86400_000).toISOString().slice(0,10);
   const [locks,blocks]=await Promise.all([
-    queryAvailabilityDocuments(env,token,tenantId,"bookingLocks",[
+    queryScopedDocuments(env,token,tenantId,"bookingLocks",[
       {field:"professionalId",op:"EQUAL",value:proId},
       {field:"dateKey",op:"EQUAL",value:date},
     ]),
-    queryAvailabilityDocuments(env,token,tenantId,"scheduleBlocks",[
+    queryScopedDocuments(env,token,tenantId,"scheduleBlocks",[
       {field:"professionalId",op:"EQUAL",value:proId},
       {field:"startsAt",op:"LESS_THAN",value:`${nextDate}T00:00:00`},
       {field:"endsAt",op:"GREATER_THAN",value:`${date}T00:00:00`},
@@ -920,8 +923,10 @@ async function setProfessionalActive(request:Request,env:Env):Promise<Response> 
   if(wasActive===active)return json(env,{ok:true,unchanged:true,professionalId,active});
   if(!active) {
     const nowLocal=zonedNowString(settings(tenant).timezone);
-    const future=(await listDocuments(env,token,`tenants/${tenantId}/appointments`))
-      .some(appointment=>
+    const future=(await queryScopedDocuments(env,token,tenantId,"appointments",[
+      {field:"professionalId",op:"EQUAL",value:professionalId},
+      {field:"startsAt",op:"GREATER_THAN_OR_EQUAL",value:nowLocal},
+    ])).some(appointment=>
         str(appointment,"professionalId")===professionalId
         && ["pending","confirmed","in_service"].includes(str(appointment,"status"))
         && str(appointment,"startsAt")>=nowLocal);
@@ -1093,7 +1098,11 @@ async function manageBlock(request:Request,env:Env,action:"create"|"cancel"):Pro
     if(!validLocalDateTime(startsAt)||!validLocalDateTime(endsAt)||endsAt<=startsAt||
        !Number.isFinite(endMs-startMs)||endMs-startMs>30*86400_000||reason.length<3||reason.length>160)
       return json(env,{error:"Folga inválida (máx. 30 dias, com motivo de 3–160 caracteres)."},400);
-    const appointments=await listDocuments(env,token,`tenants/${tenantId}/appointments`);
+    const appointments=await queryScopedDocuments(env,token,tenantId,"appointments",[
+      {field:"professionalId",op:"EQUAL",value:professionalId},
+      {field:"startsAt",op:"LESS_THAN",value:endsAt},
+      {field:"endsAt",op:"GREATER_THAN",value:startsAt},
+    ]);
     if(appointments.some(appt=>str(appt,"professionalId")===professionalId &&
       ["pending","confirmed","in_service"].includes(str(appt,"status")) &&
       str(appt,"startsAt")<endsAt && str(appt,"endsAt")>startsAt))
@@ -1257,8 +1266,10 @@ async function editProfessional(request:Request,env:Env):Promise<Response>{
   const previous=arr(pro,"serviceIds"),removed=previous.filter(id=>!serviceIds.includes(id));
   if(removed.length){
     const nowLocal=zonedNowString(settings(tenant).timezone);
-    const upcoming=(await listDocuments(env,token,`tenants/${tenantId}/appointments`))
-      .some(appointment=>str(appointment,"professionalId")===professionalId
+    const upcoming=(await queryScopedDocuments(env,token,tenantId,"appointments",[
+      {field:"professionalId",op:"EQUAL",value:professionalId},
+      {field:"startsAt",op:"GREATER_THAN_OR_EQUAL",value:nowLocal},
+    ])).some(appointment=>str(appointment,"professionalId")===professionalId
         && removed.includes(str(appointment,"serviceId"))
         && ["pending","confirmed","in_service"].includes(str(appointment,"status"))
         && str(appointment,"startsAt")>=nowLocal);

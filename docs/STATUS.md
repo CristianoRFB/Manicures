@@ -20,6 +20,8 @@ Ver `docs/PRE_PC_COMPLETENESS.md`.
 ## Otimização adicional de escalabilidade
 - Consulta de disponibilidade usa `runQuery` com filtros por profissional/data para locks, e interseção de intervalo para bloqueios que atravessam dias. Requer aplicar os índices compostos versionados em `firestore.indexes.json` antes de homologar staging/produção; CI de emulador não comprova que os índices foram implantados em cloud.
 
+- A verificação de reservas futuras para alteração de expediente, desativação e remoção de serviços, bem como sobreposição de folgas, utiliza consultas filtradas em vez de enumerar todo o histórico do tenant. Exportação completa permanece intencionalmente um fluxo separado com limite explícito.
+
 ## Incompleto (não afirmar pronto)
 - Reservas guest antigas: pedido autenticado, revisão independente manual do studio e vínculo CAS auditado implementados; nenhuma associação automática por telefone e nenhum dado real migrado.
 - Convites de entrega manual e transição de membros existentes implementados; transferências de tenant_owner deliberadamente proibidas, sem envio automático de e-mail.
