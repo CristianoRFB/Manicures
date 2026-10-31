@@ -4,16 +4,11 @@ import { repository } from "../data/repository";
 import { createProtectedBooking, getProtectedAvailability } from "../data/bookingApi";
 import type { Appointment, Professional, Service, Tenant } from "../domain/types";
 import { createSlots } from "../domain/availability";
+import { localCalendarDate } from "../domain/localCalendarDate";
 import { resolveTenant } from "../lib/tenantResolver";
 import { TenantTheme } from "../components/TenantTheme";
 import { demoModeEnabled } from "../lib/firebase";
 import { useAuth } from "../auth/AuthProvider";
-
-function tomorrow(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
 
 export function BookingPage() {
   const { tenantSlug } = useParams();
@@ -27,7 +22,7 @@ export function BookingPage() {
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [serviceId, setServiceId] = useState("");
   const [professionalId, setProfessionalId] = useState("");
-  const [date, setDate] = useState(tomorrow());
+  const [date, setDate] = useState(localCalendarDate(1));
   const [slot, setSlot] = useState("");
   const [available, setAvailable] = useState<string[]>([]);
   const [slotsLoading, setSlotsLoading] = useState(false);
@@ -88,13 +83,17 @@ export function BookingPage() {
   },[date,service,professional,appointments]);
   useEffect(() => {
     if (!tenant || !service || !professional || !date) {
-      setAvailable([]);return;
+      setAvailable([]);setSlotsLoading(false);return;
     }
-    if (demoModeEnabled()) {setAvailable(localSlots);setSlotsLoading(false);setSlotsError("");return;}
+    if (date < localCalendarDate()) {
+      setAvailable([]);setSlot("");setSlotsLoading(false);
+      setSlotsError("Selecione uma data atual ou futura.");return;
+    }
+    if (demoModeEnabled()) {setAvailable(localSlots);setSlot(current=>localSlots.includes(current)?current:"");setSlotsLoading(false);setSlotsError("");return;}
     let alive=true;
     setSlotsLoading(true);setSlotsError("");setAvailable([]);
     getProtectedAvailability({tenantId:tenant.id,serviceId:service.id,professionalId:professional.id,date})
-      .then(slots=>{if(alive)setAvailable(slots);})
+      .then(slots=>{if(alive){setAvailable(slots);setSlot(current=>slots.includes(current)?current:"");}})
       .catch(err=>{if(alive)setSlotsError(err instanceof Error ? err.message : "Falha ao buscar horários.");})
       .finally(()=>{if(alive)setSlotsLoading(false);});
     return ()=>{alive=false;};
@@ -102,7 +101,7 @@ export function BookingPage() {
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (!tenant || !service || !professional || !slot || !name.trim() || !phone.trim()) {
+    if (!tenant || !service || !professional || !slot || !available.includes(slot) || date < localCalendarDate() || !name.trim() || !phone.trim()) {
       setMessage("Preencha os dados e selecione um horário.");
       return;
     }
@@ -120,9 +119,13 @@ export function BookingPage() {
         start:saved.startsAt,priceCents:saved.priceSnapshotCents});
       setMessage("Agendamento confirmado para solicitação. A equipe poderá validar seu atendimento.");
       setSlot("");setName("");setPhone("");
-      const latest=await getProtectedAvailability({tenantId:tenant.id,serviceId:service.id,professionalId:professional.id,date})
-        .catch(()=>[]);
-      setAvailable(latest);
+      try {
+        const latest=await getProtectedAvailability({tenantId:tenant.id,serviceId:service.id,professionalId:professional.id,date});
+        setAvailable(latest);setSlotsError("");
+      } catch {
+        setAvailable([]);
+        setSlotsError("Reserva registrada, mas não foi possível atualizar os horários. Atualize a página antes de tentar outra reserva.");
+      }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Não foi possível criar o agendamento.");
     }finally{setSubmitting(false);}
@@ -142,23 +145,23 @@ export function BookingPage() {
         {customerLinkError&&<p role="alert">{customerLinkError}</p>}
         <Link to={`/customer/${tenant.slug}`}>Entrar, cadastrar ou ver meus horários</Link>
         <form className="form" onSubmit={submit}>
-          <label>Serviço<select value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlot(""); }}>
+          <label>Serviço<select disabled={submitting} value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlot(""); }}>
             {services.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select></label>
-          <label>Profissional<select value={professional?.id ?? ""} onChange={(e) => { setProfessionalId(e.target.value); setSlot(""); }}>
+          <label>Profissional<select disabled={submitting} value={professional?.id ?? ""} onChange={(e) => { setProfessionalId(e.target.value); setSlot(""); }}>
             {eligibleProfessionals.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select></label>
-          <label>Data<input type="date" value={date} onChange={(e) => { setDate(e.target.value); setSlot(""); }} /></label>
+          <label>Data<input type="date" min={localCalendarDate()} disabled={submitting} value={date} onChange={(e) => { setDate(e.target.value); setSlot(""); }} /></label>
           <fieldset><legend>Horário</legend>
             {slotsLoading && <p role="status">Verificando disponibilidade…</p>}
             {slotsError && <p role="alert">{slotsError}</p>}
             {!slotsLoading && !slotsError && available.length===0 && <p>Nenhum horário livre nessa data.</p>}
             <div className="slot-grid">
-            {available.map((item) => <button type="button" key={item} className={slot === item ? "slot selected" : "slot"} onClick={() => setSlot(item)}>{item.split("T")[1].slice(0,5)}</button>)}
+            {available.map((item) => <button type="button" key={item} className={slot === item ? "slot selected" : "slot"} aria-pressed={slot === item} aria-label={`Selecionar horário ${item.split("T")[1].slice(0,5)}`} disabled={submitting} onClick={() => setSlot(item)}>{item.split("T")[1].slice(0,5)}</button>)}
           </div></fieldset>
-          <label>Nome<input required minLength={2} maxLength={100} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} /></label>
-          <label>Telefone<input required type="tel" inputMode="tel" autoComplete="tel" minLength={10} maxLength={22} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
-          <button className="button primary" type="submit" disabled={submitting||slotsLoading||checkingCustomer||Boolean(customerLinkError)||!slot}>
+          <label>Nome<input disabled={submitting} required minLength={2} maxLength={100} autoComplete="name" value={name} onChange={(e) => setName(e.target.value)} /></label>
+          <label>Telefone<input disabled={submitting} required type="tel" inputMode="tel" autoComplete="tel" minLength={10} maxLength={22} value={phone} onChange={(e) => setPhone(e.target.value)} /></label>
+          <button className="button primary" type="submit" disabled={submitting||slotsLoading||checkingCustomer||Boolean(customerLinkError)||!slot||!available.includes(slot)||date<localCalendarDate()}>
             {submitting?"Confirmando…":"Solicitar agendamento"}
           </button>
         </form>

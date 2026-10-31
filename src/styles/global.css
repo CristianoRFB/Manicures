@@ -81,3 +81,7 @@ tr:last-child td { border-bottom: none; }
 .portfolio-grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(min(100%,185px),1fr)); gap: .9rem; margin: 1rem 0; }
 .portfolio-photo { margin:0; overflow:hidden; border-radius: .8rem; background: #f0ebf1; aspect-ratio: 4/5; border:1px solid #e0d7e5; }
 .portfolio-photo img { width:100%; height:100%; object-fit:cover; display:block; }
+
+/* Skip link remains hidden until keyboard focus, without trapping mobile users. */
+.skip-link { position: absolute; z-index: 20; top: -100px; left: 1rem; padding: .7rem 1rem; background: #fff; color: #241b29; border: 2px solid #5b2b73; border-radius: .5rem; }
+.skip-link:focus-visible { top: .5rem; }
