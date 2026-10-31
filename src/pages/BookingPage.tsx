@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { repository } from "../data/repository";
 import { createProtectedBooking, getProtectedAvailability } from "../data/bookingApi";
@@ -34,11 +34,16 @@ export function BookingPage() {
   const [submitting,setSubmitting]=useState(false);
   const [loadError,setLoadError]=useState("");
   const [loaded,setLoaded]=useState(false);
+  // A request submitted for studio A must never publish its receipt in studio B.
+  const tenantGeneration=useRef(0);
 
   useEffect(()=>{
     let active=true;
+    tenantGeneration.current+=1;
     setLoaded(false);setLoadError("");setTenant(null);setServices([]);setProfessionals([]);setAppointments([]);
     setServiceId("");setProfessionalId("");setSlot("");setAvailable([]);setReceipt(null);
+    // Do not carry customer details or an unfinished submission between studios.
+    setName("");setPhone("");setMessage("");setSlotsError("");setSubmitting(false);
     resolveTenant(repository,tenantSlug).then(async resolved=>{
       if(!active)return;
       if(!resolved){setLoaded(true);return;}
@@ -54,7 +59,7 @@ export function BookingPage() {
     }).catch(error=>{
       if(active){setLoadError(error instanceof Error?error.message:"Falha ao carregar o studio.");setLoaded(true);}
     });
-    return()=>{active=false;};
+    return()=>{active=false;tenantGeneration.current+=1;};
   },[tenantSlug]);
 
   useEffect(()=>{
@@ -119,25 +124,31 @@ export function BookingPage() {
       return;
     }
     if(submitting||checkingCustomer||customerLinkError)return;
+    const generation=tenantGeneration.current;
+    const isCurrent=()=>tenantGeneration.current===generation;
     setSubmitting(true);setMessage("");setReceipt(null);
     try {
+      const authToken=linkedCustomer&&user?await user.getIdToken(true):undefined;
+      if(!isCurrent())return; // Avoid sending an old-tenant request after delayed Auth.
       const saved=await createProtectedBooking({ tenant, service, professionalId: professional.id,
-        startsAt: slot, customerName: name.trim(), customerPhone: phone.trim(),
-        authToken:linkedCustomer&&user?await user.getIdToken(true):undefined });
+        startsAt: slot, customerName: name.trim(), customerPhone: phone.trim(),authToken });
+      if(!isCurrent())return; // The original write may have succeeded, but its receipt is tenant-scoped.
       setReceipt({id:saved.id,service:service.name,professional:professional.name,
         start:saved.startsAt,priceCents:saved.priceSnapshotCents});
       setMessage("Agendamento confirmado para solicitação. A equipe poderá validar seu atendimento.");
       setSlot("");setName("");setPhone("");
       try {
         const latest=await getProtectedAvailability({tenantId:tenant.id,serviceId:service.id,professionalId:professional.id,date});
-        setAvailable(latest);setSlotsError("");
+        if(isCurrent()){setAvailable(latest);setSlotsError("");}
       } catch {
-        setAvailable([]);
-        setSlotsError("Reserva registrada, mas não foi possível atualizar os horários. Atualize a página antes de tentar outra reserva.");
+        if(isCurrent()){
+          setAvailable([]);
+          setSlotsError("Reserva registrada, mas não foi possível atualizar os horários. Atualize a página antes de tentar outra reserva.");
+        }
       }
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Não foi possível criar o agendamento.");
-    }finally{setSubmitting(false);}
+      if(isCurrent())setMessage(error instanceof Error ? error.message : "Não foi possível criar o agendamento.");
+    }finally{if(isCurrent())setSubmitting(false);}
   }
 
   if(!loaded)return <section className="page" role="status">Carregando studio…</section>;
@@ -154,7 +165,8 @@ export function BookingPage() {
         {checkingCustomer&&<p role="status">Validando vínculo da sua conta…</p>}
         {customerLinkError&&<p role="alert">{customerLinkError}</p>}
         <Link to={`/customer/${tenant.slug}`}>Entrar, cadastrar ou ver meus horários</Link>
-        <form className="form" onSubmit={submit}>
+        {submitting&&<p role="status">A solicitação está sendo enviada. Evite sair antes de receber o protocolo.</p>}
+        <form className="form" onSubmit={submit} aria-busy={submitting}>
           <label>Serviço<select disabled={submitting} value={serviceId} onChange={(e) => { setServiceId(e.target.value); setSlot(""); }}>
             {services.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
           </select></label>

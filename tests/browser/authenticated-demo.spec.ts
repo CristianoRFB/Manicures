@@ -88,3 +88,44 @@ test("verified customer is recognized as linked after account confirmation",asyn
     await deleteApp(app);
   }
 });
+
+test("late booking response cannot leak tenant A receipt into tenant B",async({page})=>{
+  let pending:import("@playwright/test").Route|undefined;
+  await page.route("**/api/availability?*",route=>{
+    const url=new URL(route.request().url());
+    const date=url.searchParams.get("date")??"2026-11-04";
+    return route.fulfill({status:200,contentType:"application/json",
+      headers:{"access-control-allow-origin":"http://127.0.0.1:5173"},
+      body:JSON.stringify({slots:[date+"T14:00:00"],date,timezone:"America/Sao_Paulo"})});
+  });
+  await page.route("**/api/bookings",route=>{pending=route;});
+  await page.goto("/demo/book");
+  await expect(page.getByRole("option",{name:"Manicure clássica"})).toBeAttached();
+  await page.getByRole("button",{name:"Selecionar horário 14:00"}).click();
+  await page.getByLabel("Nome").fill("Cliente Teste");
+  await page.getByLabel("Telefone").fill("11912345678");
+  await page.getByRole("button",{name:"Solicitar agendamento"}).click();
+  await expect.poll(()=>Boolean(pending)).toBe(true);
+  // SPA navigation keeps the same BookingPage component and invalidates old async state.
+  await page.evaluate(()=>{
+    window.history.pushState({}, "", "/demo-b/book");
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  });
+  await expect(page).toHaveURL(/\/demo-b\/book$/);
+  const submitted=pending!.request().postDataJSON() as {startsAt:string;tenantId:string;
+    serviceId:string;professionalId:string};
+  expect(submitted.tenantId).toBe("tenant-demo-a");
+  const end=new Date(Date.parse(submitted.startsAt+"Z")+3600000).toISOString().slice(0,19);
+  await pending!.fulfill({status:201,contentType:"application/json",
+    headers:{"access-control-allow-origin":"http://127.0.0.1:5173"},
+    body:JSON.stringify({appointment:{
+      id:"12345678-1234-1234-1234-123456789abc",...submitted,endsAt:end,
+      status:"pending",durationSnapshotMin:60,priceSnapshotCents:4000}})});
+  // Release the deliberately stalled Worker request before waiting for
+  // the second studio's Firestore resources to load.
+  await expect(page.getByRole("option",{name:"Pedicure B"})).toBeAttached({timeout:15000});
+  await expect(page.getByLabel("Comprovante da solicitação")).toHaveCount(0);
+  await expect(page.getByText("Agendamento confirmado para solicitação.")).toHaveCount(0);
+  await expect(page.getByLabel("Nome")).toHaveValue("");
+  await expect(page.getByLabel("Telefone")).toHaveValue("");
+});
