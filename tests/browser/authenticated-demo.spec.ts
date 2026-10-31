@@ -88,3 +88,40 @@ test("verified customer is recognized as linked after account confirmation",asyn
     await deleteApp(app);
   }
 });
+
+test("late booking response cannot publish an old receipt after leaving the studio",async({page})=>{
+  let pending:import("@playwright/test").Route|undefined;
+  await page.route("**/api/availability?*",route=>{
+    const url=new URL(route.request().url());
+    const date=url.searchParams.get("date")??"2026-11-04";
+    return route.fulfill({status:200,contentType:"application/json",
+      headers:{"access-control-allow-origin":"http://127.0.0.1:5173"},
+      body:JSON.stringify({slots:[date+"T14:00:00"],date,timezone:"America/Sao_Paulo"})});
+  });
+  await page.route("**/api/bookings",route=>{pending=route;});
+  await page.goto("/demo/book");
+  await expect(page.getByRole("option",{name:"Manicure clássica"})).toBeAttached();
+  await page.getByRole("button",{name:"Selecionar horário 14:00"}).click();
+  await page.getByLabel("Nome").fill("Cliente Teste");
+  await page.getByLabel("Telefone").fill("11912345678");
+  await page.getByRole("button",{name:"Solicitar agendamento"}).click();
+  await expect.poll(()=>Boolean(pending)).toBe(true);
+  // Use a real React Router link instead of manually changing browser history.
+  // The pending Worker response must not repopulate the unmounted booking form.
+  await page.getByRole("link",{name:"SaaS Manicure"}).click();
+  await expect(page.getByRole("heading",{name:"Agendamento para profissionais de unhas"})).toBeVisible();
+  const submitted=pending!.request().postDataJSON() as {startsAt:string;tenantId:string;
+    serviceId:string;professionalId:string};
+  expect(submitted.tenantId).toBe("tenant-demo-a");
+  const end=new Date(Date.parse(submitted.startsAt+"Z")+3600000).toISOString().slice(0,19);
+  await pending!.fulfill({status:201,contentType:"application/json",
+    headers:{"access-control-allow-origin":"http://127.0.0.1:5173"},
+    body:JSON.stringify({appointment:{
+      id:"12345678-1234-1234-1234-123456789abc",...submitted,endsAt:end,
+      status:"pending",durationSnapshotMin:60,priceSnapshotCents:4000}})});
+  // The old response is now resolved, but the visitor has already left A.
+  await expect(page.getByRole("heading",{name:"Agendamento para profissionais de unhas"})).toBeVisible();
+  await expect(page.getByLabel("Comprovante da solicitação")).toHaveCount(0);
+  await expect(page.getByText("Agendamento confirmado para solicitação.")).toHaveCount(0);
+  await expect(page.getByText("Cliente Teste")).toHaveCount(0);
+});
