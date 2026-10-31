@@ -22,6 +22,9 @@ Ver `docs/PRE_PC_COMPLETENESS.md`.
 
 - A verificação de reservas futuras para alteração de expediente, desativação e remoção de serviços, bem como sobreposição de folgas, utiliza consultas filtradas em vez de enumerar todo o histórico do tenant. Exportação completa permanece intencionalmente um fluxo separado com limite explícito.
 
+## Validação de instantes reais no agendamento
+- Novo cálculo de antecedência, horizonte e duração com horário real no fuso do studio. Horas inexistentes ou ambíguas em transições DST não são aceitas silenciosamente; datas impossíveis e fusos inválidos são rejeitados. Homologação externa segue pendente.
+
 ## Incompleto (não afirmar pronto)
 - Reservas guest antigas: pedido autenticado, revisão independente manual do studio e vínculo CAS auditado implementados; nenhuma associação automática por telefone e nenhum dado real migrado.
 - Convites de entrega manual e transição de membros existentes implementados; transferências de tenant_owner deliberadamente proibidas, sem envio automático de e-mail.
