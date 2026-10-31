@@ -17,6 +17,7 @@ assert(storage.includes("resource == null"),"Storage deve proteger contra overwr
 assert(firestore.includes("match /guestClaims/{claimId}"),"Conciliação guest deve ser Worker-only");
 assert(firestore.includes("match /mediaRemovalRequests/{requestId}"),"Pedido de mídia deve ser Worker-only");
 assert(ci.includes("npm run test:emulator")&&ci.includes("npm run qa:browser:auth"),"CI deve exercitar regras e navegador autenticado");
+assert(ci.includes("npm run qa:browser:fail-closed"),"CI precisa testar que builds reais não voltam ao modo DEMO");
 assert(pkg.scripts.test.includes("src/commercial"),"CI deve executar regras comerciais unitárias");
 for(const path of ["docs/STORAGE_DELETION_RUNBOOK.md","docs/GUEST_HISTORY_LINKING.md","docs/BROWSER_QA_EVIDENCE.md"])load(path);
 process.stdout.write(JSON.stringify({

@@ -41,6 +41,8 @@ jobs:
           java-version: 21
       - run: npx playwright install --with-deps chromium
       - run: npm run qa:browser
+      - name: Assert live builds never fall back to the DEMO tenant
+        run: npm run qa:browser:fail-closed
       - name: Test authenticated screens with synthetic Firebase tenants
         run: npx firebase --project manicure-demo emulators:exec --only auth,firestore,storage "node scripts/seed-emulator.mjs && npm run qa:browser:auth"
       - name: Upload actual demo screenshots and browser report
