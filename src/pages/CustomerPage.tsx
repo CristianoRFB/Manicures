@@ -3,6 +3,7 @@ import {Link,useParams} from "react-router-dom";
 import {useAuth} from "../auth/AuthProvider";
 import {repository} from "../data/repository";
 import {demoModeEnabled} from "../lib/firebase";
+import {publicAuthError} from "../lib/authError";
 import {TenantTheme} from "../components/TenantTheme";
 import type {Appointment,Membership,Tenant} from "../domain/types";
 
@@ -34,6 +35,7 @@ export function CustomerPage(){
   useEffect(()=>{
     let live=true;
     setTenantLoading(true);setTenant(null);setMembership(null);setAppointments([]);
+    setError("");setFeedback("");
     repository.getTenantBySlug(tenantSlug??"").then(found=>{if(live)setTenant(found);})
       .catch(err=>{if(live)setError(err instanceof Error?err.message:"Não foi possível carregar studio.");})
       .finally(()=>{if(live)setTenantLoading(false);});
@@ -42,7 +44,7 @@ export function CustomerPage(){
 
   useEffect(()=>{
     let live=true;
-    setMembership(null);setAppointments([]);
+    setMembership(null);setAppointments([]);setDataLoading(false);
     setVerified(Boolean(user?.emailVerified));
     if(!user || !tenant || !user.emailVerified)return;
     setDataLoading(true);
@@ -57,7 +59,7 @@ export function CustomerPage(){
     }).catch(err=>{if(live)setError(err instanceof Error?err.message:"Erro ao consultar perfil.");})
       .finally(()=>{if(live)setDataLoading(false);});
     return()=>{live=false;};
-  },[tenant?.id,user?.uid,reloadKey]);
+  },[tenant?.id,user?.uid,user?.emailVerified,reloadKey]);
 
   async function authenticate(event:FormEvent){
     event.preventDefault();
@@ -72,7 +74,7 @@ export function CustomerPage(){
         setFeedback("Login realizado.");
       }
       setPassword("");
-    }catch(err){setError(err instanceof Error?err.message:"Falha de autenticação.");}
+    }catch(err){setError(publicAuthError(err,createAccount?"register":"login"));}
     finally{setWorking(false);}
   }
   async function checkVerified(){
@@ -82,7 +84,7 @@ export function CustomerPage(){
       setVerified(nowVerified);
       if(!nowVerified)setFeedback("E-mail ainda não confirmado. Verifique a caixa de entrada.");
       else{setFeedback("E-mail confirmado.");setReloadKey(v=>v+1);}
-    }catch(err){setError(err instanceof Error?err.message:"Falha ao verificar e-mail.");}
+    }catch(err){setError(publicAuthError(err,"verify"));}
     finally{setWorking(false);}
   }
   async function enroll(){
@@ -129,10 +131,18 @@ export function CustomerPage(){
       });
       const data=await response.json() as {error?:string};
       if(!response.ok)throw new Error(data.error??"Não foi possível cancelar.");
-      const records=await repository.listAppointmentsForCustomer(tenant.id,user.uid);
-      setAppointments(records);
+      // The server confirmed the cancellation. A later read failure must never
+      // suggest the write failed or invite a duplicate cancellation attempt.
+      setAppointments(items=>items.map(item=>item.id===appointmentId
+        ? {...item,status:"cancelled"} : item));
       setFeedback("Atendimento cancelado; horário liberado para outras pessoas.");
-    }catch(err){setError(err instanceof Error?err.message:"Falha no cancelamento.");}
+      try {
+        const records=await repository.listAppointmentsForCustomer(tenant.id,user.uid);
+        setAppointments(records);
+      } catch {
+        setFeedback("Cancelamento confirmado. Não foi possível atualizar a lista; recarregue a página para conferir.");
+      }
+    }catch(err){setError(err instanceof Error?err.message:"Não foi possível confirmar o cancelamento.");}
     finally{setWorking(false);}
   }
 
@@ -146,22 +156,24 @@ export function CustomerPage(){
     {error&&<p role="alert">{error}</p>}
     {feedback&&<p role="status">{feedback}</p>}
     {demoModeEnabled()||!configured?<p>Para criar um perfil real, ative o Firebase Auth e o Booking Worker em ambiente autorizado.</p>:
-    !user?<form className="form" onSubmit={event=>void authenticate(event)}>
+    !user?<form className="form" onSubmit={event=>void authenticate(event)} aria-busy={working}>
       <h2>{createAccount?"Criar conta de cliente":"Entrar como cliente"}</h2>
-      <label>E-mail<input required type="email" autoComplete="email" value={email}
+      <label>E-mail<input required type="email" disabled={working} autoComplete="email" value={email}
         onChange={event=>setEmail(event.target.value)}/></label>
-      <label>Senha<input required type="password" minLength={6}
+      <label>Senha<input required type="password" disabled={working} minLength={6}
         autoComplete={createAccount?"new-password":"current-password"} value={password}
         onChange={event=>setPassword(event.target.value)}/></label>
       <button className="button primary" type="submit" disabled={working}>{working?"Aguarde…":createAccount?"Cadastrar e verificar e-mail":"Entrar"}</button>
-      <button className="button" type="button" onClick={async()=>{
-        setError("");setFeedback("");
+      <button className="button" type="button" disabled={working} onClick={async()=>{
+        if(working)return;
+        setWorking(true);setError("");setFeedback("");
         try{
           await requestPasswordReset(email);
           setFeedback("Se a conta existir, você receberá o e-mail oficial de recuperação.");
-        }catch(err){setError(err instanceof Error?err.message:"Falha ao recuperar conta.");}
+        }catch(err){setError(publicAuthError(err,"reset"));}
+        finally{setWorking(false);}
       }}>Esqueci minha senha</button>
-      <button className="button" type="button" onClick={()=>setCreateAccount(current=>!current)}>
+      <button className="button" type="button" disabled={working} onClick={()=>setCreateAccount(current=>!current)}>
         {createAccount?"Já tenho conta":"Criar uma conta"}
       </button>
     </form>:
@@ -174,8 +186,11 @@ export function CustomerPage(){
         <div className="row">
           <button className="button primary" disabled={working} onClick={()=>void checkVerified()}>Verificar e-mail</button>
           <button className="button" disabled={working} onClick={()=>void (async()=>{
+            if(working)return;
+            setWorking(true);setError("");setFeedback("");
             try{await sendVerificationEmail();setFeedback("Novo e-mail de verificação solicitado.");}
-            catch(err){setError(err instanceof Error?err.message:"Falha ao reenviar e-mail.");}
+            catch(err){setError(publicAuthError(err,"verify"));}
+            finally{setWorking(false);}
           })()}>Reenviar verificação</button>
         </div>
       </section>:
